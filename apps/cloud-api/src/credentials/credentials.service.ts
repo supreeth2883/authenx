@@ -166,6 +166,69 @@ export class CredentialsService {
   }
 
   /**
+   * Paginated credential list, optionally scoped by issuerCode.
+   */
+  async findAll(opts: {
+    issuerCode?: string;
+    search?: string;
+    branch?: string;
+    graduationYear?: number;
+    page?: number;
+    limit?: number;
+  }) {
+    const page = Math.max(opts.page ?? 1, 1);
+    const limit = Math.min(Math.max(opts.limit ?? 20, 1), 100);
+    const skip = (page - 1) * limit;
+
+    const where: any = {};
+    const conditions: any[] = [];
+
+    if (opts.issuerCode) {
+      conditions.push({ issuerCode: opts.issuerCode });
+    }
+
+    if (opts.search?.trim()) {
+      const s = opts.search.trim();
+      conditions.push({
+        OR: [
+          { name: { contains: s, mode: 'insensitive' } },
+          { rollNumber: { contains: s, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (opts.branch?.trim()) {
+      conditions.push({ branch: { contains: opts.branch.trim(), mode: 'insensitive' } });
+    }
+
+    if (opts.graduationYear) {
+      conditions.push({ graduationYear: opts.graduationYear });
+    }
+
+    if (conditions.length > 0) {
+      where.AND = conditions;
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.credential.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.credential.count({ where }),
+    ]);
+
+    return {
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
    * Full cryptographic verification of a credential.
    * Rebuilds canonical JSON → SHA-256 hash check → Ed25519 signature check.
    * Writes verification log + audit log.

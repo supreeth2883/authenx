@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Logger, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Logger, UseGuards, Req } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { Prisma } from '@prisma/client';
@@ -6,6 +6,7 @@ import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
+import type { Request } from 'express';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -32,13 +33,23 @@ export class AdminController {
   }
 
   @Get('stats')
-  async getStats() {
+  async getStats(@Req() req: Request) {
+    const user = (req as any).user;
+    const issuerScope = user?.role === UserRole.COLLEGE_ADMIN && user?.issuerCode
+      ? { issuerCode: user.issuerCode } : {};
+    const credWhere: Prisma.CredentialWhereInput = issuerScope;
+    // Verification logs reference credentialId; scope via credential lookup
+    const credIds = Object.keys(issuerScope).length > 0
+      ? (await this.prisma.credential.findMany({ where: credWhere, select: { id: true } })).map(c => c.id)
+      : null;
+    const verWhere: Prisma.VerificationLogWhereInput = credIds ? { credentialId: { in: credIds } } : {};
+
     const [totalCredentials, totalVerifications, successCount, failedCount] =
       await Promise.all([
-        this.prisma.credential.count(),
-        this.prisma.verificationLog.count(),
-        this.prisma.verificationLog.count({ where: { result: true } }),
-        this.prisma.verificationLog.count({ where: { result: false } }),
+        this.prisma.credential.count({ where: credWhere }),
+        this.prisma.verificationLog.count({ where: verWhere }),
+        this.prisma.verificationLog.count({ where: { ...verWhere, result: true } }),
+        this.prisma.verificationLog.count({ where: { ...verWhere, result: false } }),
       ]);
 
     return { totalCredentials, totalVerifications, successCount, failedCount };
@@ -46,18 +57,25 @@ export class AdminController {
 
   @Get('credentials')
   async getCredentials(
+    @Req() req: Request,
     @Query('search') search?: string,
     @Query('branch') branch?: string,
     @Query('graduationYear') graduationYearStr?: string,
     @Query('page') pageStr?: string,
     @Query('limit') limitStr?: string,
   ) {
+    const user = (req as any).user;
     const page = Math.max(parseInt(pageStr || '1', 10) || 1, 1);
     const limit = Math.min(Math.max(parseInt(limitStr || '20', 10) || 20, 1), 100);
     const skip = (page - 1) * limit;
 
     const where: Prisma.CredentialWhereInput = {};
     const conditions: Prisma.CredentialWhereInput[] = [];
+
+    // Scope to issuerCode for COLLEGE_ADMIN
+    if (user?.role === UserRole.COLLEGE_ADMIN && user?.issuerCode) {
+      conditions.push({ issuerCode: user.issuerCode });
+    }
 
     if (search?.trim()) {
       const s = search.trim();
@@ -102,13 +120,17 @@ export class AdminController {
   }
 
   @Get('analytics')
-  async getAnalytics() {
+  async getAnalytics(@Req() req: Request) {
+    const user = (req as any).user;
+    const issuerScope = user?.role === UserRole.COLLEGE_ADMIN && user?.issuerCode
+      ? { issuerCode: user.issuerCode } : {};
+
     // Issued per day (last 30 days)
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
     const issuedRaw = await this.prisma.credential.findMany({
-      where: { createdAt: { gte: thirtyDaysAgo } },
+      where: { createdAt: { gte: thirtyDaysAgo }, ...issuerScope },
       select: { createdAt: true },
       orderBy: { createdAt: 'asc' },
     });

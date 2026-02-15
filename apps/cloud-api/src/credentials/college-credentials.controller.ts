@@ -1,7 +1,9 @@
 import {
   Controller,
   Post,
+  Get,
   Body,
+  Query,
   UseGuards,
   Logger,
   Req,
@@ -36,6 +38,41 @@ export class CollegeCredentialsController {
     private readonly credentialsService: CredentialsService,
     private readonly issuersService: IssuersService,
   ) {}
+
+  /**
+   * GET /college/credentials — paginated list scoped to the user's issuerCode
+   */
+  @Get()
+  async list(
+    @Req() req: Request,
+    @Query('search') search?: string,
+    @Query('branch') branch?: string,
+    @Query('graduationYear') graduationYearStr?: string,
+    @Query('page') pageStr?: string,
+    @Query('limit') limitStr?: string,
+  ) {
+    const user = (req as any).user;
+    const issuerCode = user?.issuerCode;
+    if (!issuerCode) {
+      throw new HttpException(
+        'User has no associated issuerCode',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    const page = Math.max(parseInt(pageStr || '1', 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(limitStr || '20', 10) || 20, 1), 100);
+    const graduationYear = parseInt(graduationYearStr || '', 10);
+
+    return this.credentialsService.findAll({
+      issuerCode,
+      search: search?.trim(),
+      branch: branch?.trim(),
+      graduationYear: !isNaN(graduationYear) ? graduationYear : undefined,
+      page,
+      limit,
+    });
+  }
 
   @Post('publish')
   async publish(
@@ -100,9 +137,13 @@ export class CollegeCredentialsController {
         const message = (err as any)?.response?.message ?? (err as Error).message;
         // Handle duplicate credential (already issued)
         if ((err as any)?.status === 409) {
+          // Extract existing credential ID from the error message
+          const match = message.match(/id=([a-zA-Z0-9]+)/);
+          const existingId = match ? match[1] : undefined;
           results.push({
             rollNumber: record.rollNumber,
             status: 'ALREADY_ISSUED',
+            credentialId: existingId,
             reason: message,
           });
         } else {

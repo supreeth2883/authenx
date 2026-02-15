@@ -10,9 +10,12 @@ Enterprise-grade credential issuance, verification, and management platform with
 ## 🎯 Features
 
 ### Core Capabilities
-- **Credential Issuance**: Digitally sign and issue educational credentials
-- **Credential Verification**: Instant verification of issued credentials
+- **Credential Issuance**: Batch issue credentials with ERP validation, CSV upload, mismatch diffing
+- **Credential Management**: Paginated issued-credentials explorer with search, QR generation, PNG download
+- **Credential Verification**: Instant public verification with QR scan support
+- **Issuer Scoping**: COLLEGE_ADMIN users see only their own institution's data
 - **Audit Trail**: Cryptographic SHA-256 hash chaining for tamper detection
+- **User Management**: SUPER_ADMIN CRUD for users with role/issuerCode assignment
 - **Enterprise Security**: Rate limiting, CORS, validation, structured logging
 
 ### Architecture

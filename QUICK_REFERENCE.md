@@ -87,6 +87,39 @@ docker-compose -f docker-compose.prod.yml ps
 
 ---
 
+## 📜 API Endpoints (Key Routes)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | /auth/login | — | Login, returns JWT |
+| GET | /auth/me | JWT | Current user + issuerCode |
+| POST | /college/credentials/publish | COLLEGE_ADMIN | Batch issue credentials |
+| GET | /college/credentials | COLLEGE_ADMIN | List issued (paginated, search) |
+| GET | /credentials/:id/verify | — | Verify a credential |
+| GET | /public/verify/:id | — | Public verification |
+| GET | /admin/stats | ADMIN | Dashboard stats (issuer-scoped) |
+| GET | /admin/credentials | ADMIN | Credential explorer (issuer-scoped) |
+| GET | /admin/analytics | ADMIN | Issuance analytics (issuer-scoped) |
+
+---
+
+## 🎓 Credential Issuance Flow
+
+```
+College Admin → /college/issue (Web UI)
+  ├── "Issue New" tab → Add records / CSV upload → Publish
+  │     └── Each record: ERP lookup → hash → sign → store
+  │           ├── MATCHED_AND_ISSUED  → credentialId + QR
+  │           ├── ALREADY_ISSUED      → shows existing ID
+  │           ├── MISMATCH            → expandable field diff
+  │           ├── NOT_FOUND           → roll not in ERP
+  │           └── ERROR               → server error
+  └── "Issued Credentials" tab → paginated list with search
+        └── Row actions: Copy ID | Copy verify link | Show QR | Download PNG
+```
+
+---
+
 ## 📝 Essential Files
 
 ```
