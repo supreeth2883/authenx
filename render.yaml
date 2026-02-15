@@ -11,6 +11,14 @@ databases:
     user: authenx
 
 services:
+  # ── Redis ───────────────────────────────────────────────────────
+  - type: redis
+    name: authenx-redis
+    plan: free
+    region: oregon
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []  # only internal
+
   # ── Cloud API (NestJS) ──────────────────────────────────────────
   - type: web
     name: authenx-cloud-api
@@ -76,18 +84,5 @@ services:
         value: production
       - key: HOSTNAME
         value: "0.0.0.0"
-      # NEXT_PUBLIC_API_URL must be the public URL of cloud-api
-      # Render exposes each web service on its own .onrender.com domain
       - key: NEXT_PUBLIC_API_URL
         value: https://authenx-cloud-api.onrender.com
-    docker:
-      buildArgs:
-        NEXT_PUBLIC_API_URL: https://authenx-cloud-api.onrender.com
-
-  # ── Redis ───────────────────────────────────────────────────────
-  - type: redis
-    name: authenx-redis
-    plan: free
-    region: oregon
-    maxmemoryPolicy: allkeys-lru
-    ipAllowList: []  # only internal
