@@ -49,6 +49,7 @@ export default function AdminPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [qrModal, setQrModal] = useState<{ id: string; name: string } | null>(null);
+  const [userRole, setUserRole] = useState<string | null>(null);
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -61,9 +62,11 @@ export default function AdminPage() {
     Promise.all([
       fetch("/api/proxy/admin/stats").then((r) => r.json()),
       fetch("/api/proxy/admin/analytics").then((r) => r.json()),
-    ]).then(([s, a]) => {
+      fetch("/api/proxy/auth/me").then((r) => r.ok ? r.json() : null),
+    ]).then(([s, a, me]) => {
       setStats(s);
       setAnalytics(a);
+      if (me?.role) setUserRole(me.role);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -126,6 +129,11 @@ export default function AdminPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {userRole === "SUPER_ADMIN" && (
+              <a href="/admin/users" className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors">
+                Manage Users →
+              </a>
+            )}
             <a href="/admin/audit" className="text-sm font-medium text-amber-600 dark:text-amber-400 hover:text-amber-500 dark:hover:text-amber-300 transition-colors">
               Audit Trail →
             </a>

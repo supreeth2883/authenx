@@ -39,13 +39,18 @@ enum UserRole {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   passwordHash String
   role         UserRole
-  createdAt    DateTime @default(now())
+  issuerCode   String?
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([email])
+  @@index([role])
+  @@index([active])
 }
 
 model Org {

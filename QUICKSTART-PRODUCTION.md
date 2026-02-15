@@ -352,6 +352,71 @@ NEXT_PUBLIC_API_URL=https://api.yourdomain.com
 
 ---
 
+## Super Admin — User Management
+
+SUPER_ADMIN users can create and manage other users directly from the web UI.
+
+### How to use
+
+1. **Login** as the Super Admin at `/login`:
+   - Email: `admin@authenx.io` / Password: `Admin@2026` (default seed)
+2. Navigate to **`/admin/users`** (or click "Manage Users →" in the dashboard header).
+3. **Create a user** — click "Create User", fill in email, password, role, and issuerCode (for COLLEGE_ADMIN).
+4. **Edit a user** — click "Edit" on any row to change role, issuerCode, status, or reset password.
+5. **Deactivate a user** — click "Deactivate" to soft-disable an account (no hard delete).
+
+### Role-Based Access Control
+
+| Role | Dashboard | User Management | Employer Portal |
+|------|-----------|-----------------|-----------------|
+| SUPER_ADMIN | ✅ | ✅ | ✅ |
+| COLLEGE_ADMIN | ✅ | ❌ (403) | ✅ |
+| EMPLOYER | ❌ | ❌ (403) | ✅ |
+
+### Verifying RBAC
+
+1. Create a user with role `COLLEGE_ADMIN` via the UI.
+2. Logout, then login as the new college admin.
+3. Navigate to `/admin/users` — you should see a "Not Authorized" message.
+4. The API returns HTTP 403 for any `/admin/users` endpoint for non-SUPER_ADMIN roles.
+
+### API Endpoints (via proxy)
+
+All frontend requests go through `/api/proxy/...` (never directly to cloud-api):
+
+```
+GET    /api/proxy/admin/users?role=&q=&page=&limit=
+POST   /api/proxy/admin/users          { email, password, role, issuerCode? }
+PATCH  /api/proxy/admin/users/:id      { role?, issuerCode?, active?, password? }
+DELETE /api/proxy/admin/users/:id       (deactivates user)
+```
+
+### curl examples (direct to cloud-api, for debugging)
+
+```bash
+# Login as super admin
+TOKEN=$(curl -s -X POST http://localhost:3001/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@authenx.io","password":"Admin@2026"}' | jq -r .access_token)
+
+# List users
+curl -s http://localhost:3001/admin/users -H "Authorization: Bearer $TOKEN" | jq
+
+# Create a college admin
+curl -s -X POST http://localhost:3001/admin/users \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"newcollege@example.com","password":"College@2026","role":"COLLEGE_ADMIN","issuerCode":"TEST"}' | jq
+
+# Update a user
+curl -s -X PATCH http://localhost:3001/admin/users/<USER_ID> \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"active":false}' | jq
+```
+
+---
+
 ## Need Help?
 
 1. **Development Questions**: See [DEPLOYMENT.md](DEPLOYMENT.md)
