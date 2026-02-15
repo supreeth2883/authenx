@@ -1,5 +1,15 @@
-import { Controller, Post, Logger } from '@nestjs/common';
+import { Controller, Post, Body, Logger } from '@nestjs/common';
 import { ErpService } from './erp.service.js';
+
+interface ValidateStudentBody {
+  issuerCode: string;
+  rollNumber: string;
+  name: string;
+  degree: string;
+  branch: string;
+  graduationYear: number;
+  cgpa: number;
+}
 
 @Controller('erp')
 export class ErpController {
@@ -11,5 +21,11 @@ export class ErpController {
   async publishResults() {
     this.logger.log('Publishing mock ERP results to cloud-api...');
     return this.erpService.publishResults();
+  }
+
+  @Post('validate-student')
+  async validateStudent(@Body() body: ValidateStudentBody) {
+    this.logger.log(`Validating student ${body.rollNumber}`);
+    return this.erpService.validateStudent(body);
   }
 }

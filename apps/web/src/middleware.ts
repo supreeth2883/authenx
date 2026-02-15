@@ -41,6 +41,10 @@ export function middleware(request: NextRequest) {
       return NextResponse.redirect(new URL("/employer", request.url));
     }
 
+    if (pathname.startsWith("/college") && role !== "COLLEGE_ADMIN" && role !== "SUPER_ADMIN") {
+      return NextResponse.redirect(new URL("/employer", request.url));
+    }
+
     if (pathname.startsWith("/employer") && role !== "EMPLOYER" && role !== "COLLEGE_ADMIN" && role !== "SUPER_ADMIN") {
       return NextResponse.redirect(new URL("/login", request.url));
     }
