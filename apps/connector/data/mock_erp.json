@@ -1,0 +1,82 @@
+[
+  {
+    "name": "Supreeth Chaluvadi",
+    "rollNumber": "21B81A0501",
+    "degree": "B.Tech",
+    "branch": "Computer Science",
+    "graduationYear": 2025,
+    "cgpa": 8.75
+  },
+  {
+    "name": "Ananya Reddy",
+    "rollNumber": "21B81A0502",
+    "degree": "B.Tech",
+    "branch": "Computer Science",
+    "graduationYear": 2025,
+    "cgpa": 9.12
+  },
+  {
+    "name": "Rahul Sharma",
+    "rollNumber": "21B81A0403",
+    "degree": "B.Tech",
+    "branch": "Electronics",
+    "graduationYear": 2025,
+    "cgpa": 7.88
+  },
+  {
+    "name": "Priya Nair",
+    "rollNumber": "21B81A0504",
+    "degree": "B.Tech",
+    "branch": "Computer Science",
+    "graduationYear": 2025,
+    "cgpa": 9.45
+  },
+  {
+    "name": "Karthik Menon",
+    "rollNumber": "21B81A0305",
+    "degree": "B.Tech",
+    "branch": "Mechanical",
+    "graduationYear": 2025,
+    "cgpa": 7.32
+  },
+  {
+    "name": "Deepika Joshi",
+    "rollNumber": "21B81A0506",
+    "degree": "B.Tech",
+    "branch": "Computer Science",
+    "graduationYear": 2025,
+    "cgpa": 8.91
+  },
+  {
+    "name": "Arjun Patel",
+    "rollNumber": "21B81A0207",
+    "degree": "B.Tech",
+    "branch": "Civil",
+    "graduationYear": 2025,
+    "cgpa": 7.65
+  },
+  {
+    "name": "Sneha Kulkarni",
+    "rollNumber": "21B81A0508",
+    "degree": "B.Tech",
+    "branch": "Computer Science",
+    "graduationYear": 2025,
+    "cgpa": 8.34
+  },
+  {
+    "name": "Vikram Singh",
+    "rollNumber": "21B81A0409",
+    "degree": "B.Tech",
+    "branch": "Electronics",
+    "graduationYear": 2025,
+    "cgpa": 8.02
+  },
+  {
+    "name": "Meera Iyer",
+    "rollNumber": "21B81A0510",
+    "degree": "B.Tech",
+    "branch": "Computer Science",
+    "graduationYear": 2025,
+    "cgpa": 9.67
+  }
+]

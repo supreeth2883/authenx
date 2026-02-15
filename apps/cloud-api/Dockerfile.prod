@@ -1,0 +1,69 @@
+# Cloud API Production Dockerfile
+# Multi-stage build for optimized image size
+
+# ── Stage 1: Build ──────────────────────────────────────────────────
+FROM node:22-alpine AS builder
+
+# bcrypt requires native compilation tools on Alpine
+# openssl ensures Prisma detects the correct engine target (3.0.x on node:22-alpine)
+RUN apk add --no-cache python3 make g++ openssl
+
+WORKDIR /app
+
+# Install pnpm (same major version as lockfile)
+RUN npm install -g pnpm@9
+
+# 1) Copy ONLY dependency-resolution files first (Docker layer cache)
+#    pnpm needs the full workspace structure to resolve the lockfile
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY apps/cloud-api/package.json apps/cloud-api/package.json
+COPY apps/connector/package.json apps/connector/package.json
+COPY apps/web/package.json        apps/web/package.json
+
+# 2) Use hoisted node_modules so TypeScript/nodenext can resolve deps
+#    (pnpm's default deep symlinks break TS moduleResolution: "nodenext")
+#    --frozen-lockfile still works because lockfile content != layout
+RUN echo "node-linker=hoisted" > .npmrc && \
+    echo "shamefully-hoist=true" >> .npmrc && \
+    pnpm install --frozen-lockfile
+
+# 3) Copy cloud-api source (prisma schema + migrations + src)
+COPY apps/cloud-api apps/cloud-api
+
+# 4) Generate Prisma client & build NestJS
+#    With hoisted layout, all binaries live at /app/node_modules/.bin/
+#    Must use absolute path — npx/pnpm exec resolves to the workspace
+#    member's (empty) node_modules otherwise
+RUN cd apps/cloud-api && /app/node_modules/.bin/prisma generate
+RUN cd apps/cloud-api && /app/node_modules/.bin/nest build
+
+# ── Stage 2: Runtime (minimal) ─────────────────────────────────────
+FROM node:22-alpine
+
+WORKDIR /app
+
+# Prisma needs OpenSSL at runtime on Alpine
+RUN apk add --no-cache openssl
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
+
+# Copy only what the app needs to run
+#   - hoisted node_modules from root /app/node_modules (includes .prisma client)
+COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nodejs:nodejs /app/apps/cloud-api/package.json ./package.json
+COPY --from=builder --chown=nodejs:nodejs /app/apps/cloud-api/dist     ./dist
+COPY --from=builder --chown=nodejs:nodejs /app/apps/cloud-api/prisma   ./prisma
+
+# Winston logger writes to /app/logs at runtime
+RUN mkdir -p /app/logs && chown nodejs:nodejs /app/logs
+
+USER nodejs
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD node -e "const h=require('http');h.get('http://localhost:3001/',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"
+
+EXPOSE 3001
+
+# Run pending migrations, seed demo users (idempotent), then start the server
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node dist/prisma/seed.js && node dist/src/main.js"]

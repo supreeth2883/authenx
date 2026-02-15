@@ -1,0 +1,60 @@
+# Connector Service Production Dockerfile
+# Multi-stage build for optimized image size
+
+# ── Stage 1: Build ──────────────────────────────────────────────────
+FROM node:22-alpine AS builder
+
+WORKDIR /app
+
+# Install pnpm
+RUN npm install -g pnpm@9
+
+# Copy workspace dependency-resolution files
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY apps/cloud-api/package.json apps/cloud-api/package.json
+COPY apps/connector/package.json apps/connector/package.json
+COPY apps/web/package.json        apps/web/package.json
+
+# Use hoisted node_modules (TS moduleResolution: "nodenext" compatibility)
+RUN echo "node-linker=hoisted" > .npmrc && \
+    echo "shamefully-hoist=true" >> .npmrc && \
+    pnpm install --frozen-lockfile
+
+# Copy connector source
+COPY apps/connector apps/connector
+
+# Build NestJS application
+RUN cd apps/connector && /app/node_modules/.bin/nest build
+
+# Stage 2: Runtime
+FROM node:22-alpine
+
+WORKDIR /app
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
+
+# Copy node_modules and built output
+COPY --from=builder --chown=nodejs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nodejs:nodejs /app/apps/connector/package.json ./package.json
+
+# Copy built output
+COPY --from=builder --chown=nodejs:nodejs /app/apps/connector/dist ./dist
+
+# Copy mock ERP data
+COPY --from=builder --chown=nodejs:nodejs /app/apps/connector/data ./data
+
+# KeysService writes to /app/.data at runtime — create with correct ownership
+RUN mkdir -p /app/.data && chown nodejs:nodejs /app/.data
+
+# Switch to non-root user
+USER nodejs
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD node -e "const h=require('http');h.get('http://localhost:3002/',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"
+
+EXPOSE 3002
+
+# Start server
+CMD ["node", "dist/main.js"]

@@ -1,0 +1,182 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrgType {
+  ISSUER
+  EMPLOYER
+}
+
+enum OrgStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+}
+
+enum TokenStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum VerifyOutcome {
+  ISSUANCE_VERIFIED
+  LIVE_VERIFIED
+  NOT_FOUND
+  OFFLINE
+  MISMATCH
+  ERROR
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  COLLEGE_ADMIN
+  EMPLOYER
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  role         UserRole
+  createdAt    DateTime @default(now())
+
+  @@index([email])
+}
+
+model Org {
+  id        String    @id @default(cuid())
+  orgType   OrgType
+  name      String
+  domain    String?
+  status    OrgStatus @default(PENDING)
+  createdAt DateTime  @default(now())
+
+  issuer Issuer?
+  verifs Verification[]
+}
+
+model Issuer {
+  id                  String   @id @default(cuid())
+  orgId               String   @unique
+  issuerCode          String   @unique
+  publicKeyEd25519    String   // Legacy field - kept for backward compatibility
+  connectorBaseUrl    String
+  connectorApiKeyHash String
+  createdAt           DateTime @default(now())
+
+  org         Org          @relation(fields: [orgId], references: [id])
+  tokens      Token[]
+  credentials Credential[]
+  keys        IssuerKey[]
+}
+
+model IssuerKey {
+  id         String    @id @default(cuid())
+  issuerCode String
+  keyVersion Int
+  publicKey  String    // Base64 encoded Ed25519 public key
+  privateKey String?   // Encrypted, only stored if cloud-managed
+  active     Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  issuer Issuer @relation(fields: [issuerCode], references: [issuerCode])
+
+  @@unique([issuerCode, keyVersion])
+  @@index([issuerCode, active])
+}
+
+model Token {
+  id              String      @id @default(cuid())
+  issuerCode      String
+  credentialType  String
+  cid             String
+  fingerprintHash String
+  issuerSignature String
+  issuedAt        DateTime
+  status          TokenStatus @default(ACTIVE)
+  createdAt       DateTime    @default(now())
+
+  issuer Issuer @relation(fields: [issuerCode], references: [issuerCode])
+
+  @@unique([issuerCode, credentialType, cid])
+  @@index([issuerCode, cid])
+}
+
+model Verification {
+  id             String        @id @default(cuid())
+  issuerCode     String
+  employerOrgId  String
+  credentialType String
+  cid            String
+  outcome        VerifyOutcome
+  reasonCode     String?
+  latencyMs      Int?
+  createdAt      DateTime      @default(now())
+
+  employer Org @relation(fields: [employerOrgId], references: [id])
+}
+
+model Credential {
+  id             String   @id @default(cuid())
+  issuerCode     String
+  keyVersion     Int      @default(1)
+  name           String
+  rollNumber     String
+  degree         String
+  branch         String
+  graduationYear Int
+  cgpa           Float
+  hash           String   @unique
+  signature      String
+  createdAt      DateTime @default(now())
+
+  issuer Issuer @relation(fields: [issuerCode], references: [issuerCode])
+
+  @@index([issuerCode])
+  @@index([rollNumber])
+  @@index([issuerCode, keyVersion])
+}
+
+model VerificationLog {
+  id             String   @id @default(uuid())
+  credentialId   String
+  orgName        String
+  result         Boolean
+  hashValid      Boolean
+  signatureValid Boolean
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+enum AuditAction {
+  CREDENTIAL_ISSUED
+  CREDENTIAL_VERIFIED
+}
+
+model AuditLog {
+  id             String      @id @default(uuid())
+  sequence       Int         @unique @default(autoincrement())
+  action         AuditAction
+  credentialId   String
+  organization   String
+  actor          String?
+  result         Boolean
+  detail         String?
+  ipAddress      String?
+  previousHash   String
+  currentHash    String
+  createdAt      DateTime    @default(now())
+
+  @@index([createdAt])
+  @@index([action])
+  @@index([credentialId])
+  @@index([organization])
+  @@index([sequence])
+}

@@ -1,0 +1,23 @@
+node_modules
+dist
+.next
+.env
+.env.local
+.env.production.local
+*.log
+.DS_Store
+.turbo
+generated
+
+# Connector keys (generated at runtime)
+.data/
+
+# Logs
+logs/
+
+# Docker volumes
+postgres_data/
+redis_data/
+
+# Build artifacts
+*.tsbuildinfo

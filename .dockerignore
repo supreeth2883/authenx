@@ -1,0 +1,15 @@
+**/node_modules
+npm-debug.log
+**/dist
+**/build
+**/.next
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.git
+.gitignore
+.DS_Store
+*.md
+.env
+*.log
