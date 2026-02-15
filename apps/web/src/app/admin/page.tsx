@@ -5,8 +5,6 @@ import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { IssuedPerDayChart, VerificationRateChart, TopOrgsChart } from "./charts";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-
 interface Stats {
   totalCredentials: number;
   totalVerifications: number;
@@ -53,7 +51,7 @@ export default function AdminPage() {
   const [qrModal, setQrModal] = useState<{ id: string; name: string } | null>(null);
 
   const handleLogout = async () => {
-    await fetch(`${API}/auth/logout`, { method: "POST", credentials: "include" });
+    await fetch("/api/auth/logout", { method: "POST" });
     localStorage.removeItem("authenx_role");
     localStorage.removeItem("authenx_user");
     router.push("/login");
@@ -61,8 +59,8 @@ export default function AdminPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch(`${API}/admin/stats`, { credentials: "include" }).then((r) => r.json()),
-      fetch(`${API}/admin/analytics`, { credentials: "include" }).then((r) => r.json()),
+      fetch("/api/proxy/admin/stats").then((r) => r.json()),
+      fetch("/api/proxy/admin/analytics").then((r) => r.json()),
     ]).then(([s, a]) => {
       setStats(s);
       setAnalytics(a);
@@ -79,7 +77,7 @@ export default function AdminPage() {
     params.set("limit", "10");
 
     try {
-      const res = await fetch(`${API}/admin/credentials?${params.toString()}`, { credentials: "include" });
+      const res = await fetch(`/api/proxy/admin/credentials?${params.toString()}`);
       const data: CredentialPage = await res.json();
       setCredentials(data);
     } catch {

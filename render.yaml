@@ -86,3 +86,5 @@ services:
         value: "0.0.0.0"
       - key: NEXT_PUBLIC_API_URL
         value: https://authenx-cloud-api.onrender.com
+      - key: API_URL
+        value: https://authenx-cloud-api.onrender.com

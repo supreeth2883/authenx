@@ -4,8 +4,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-
 interface VerificationResult {
   credentialId: string;
   issuerCode: string;
@@ -74,7 +72,7 @@ function EmployerPageInner() {
   }, [searchParams]);
 
   const handleLogout = async () => {
-    await fetch(`${API}/auth/logout`, { method: "POST", credentials: "include" });
+    await fetch("/api/auth/logout", { method: "POST" });
     localStorage.removeItem("authenx_role");
     localStorage.removeItem("authenx_user");
     router.push("/login");
@@ -82,7 +80,7 @@ function EmployerPageInner() {
 
   const fetchLogs = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/admin/logs?limit=10`, { credentials: "include" });
+      const res = await fetch("/api/proxy/admin/logs?limit=10");
       if (res.ok) {
         const data = await res.json();
         setLogs(data);
@@ -123,8 +121,7 @@ function EmployerPageInner() {
       if (orgName.trim()) params.set("orgName", orgName.trim());
 
       const res = await fetch(
-        `${API}/credentials/${credentialId.trim()}/verify?${params.toString()}`,
-        { credentials: "include" }
+        `/api/proxy/credentials/${credentialId.trim()}/verify?${params.toString()}`
       );
 
       if (!res.ok) {

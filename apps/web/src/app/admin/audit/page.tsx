@@ -3,8 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-
 interface AuditLog {
   id: string;
   sequence: number;
@@ -51,7 +49,7 @@ export default function AuditPage() {
   const [verifying, setVerifying] = useState(false);
 
   const handleLogout = async () => {
-    await fetch(`${API}/auth/logout`, { method: "POST", credentials: "include" });
+    await fetch("/api/auth/logout", { method: "POST" });
     localStorage.removeItem("authenx_role");
     localStorage.removeItem("authenx_user");
     router.push("/login");
@@ -68,9 +66,7 @@ export default function AuditPage() {
     params.set("limit", "25");
 
     try {
-      const res = await fetch(`${API}/admin/audit-logs?${params.toString()}`, {
-        credentials: "include",
-      });
+      const res = await fetch(`/api/proxy/admin/audit-logs?${params.toString()}`);
       const data: AuditPage = await res.json();
       setLogs(data);
     } catch {
@@ -80,9 +76,7 @@ export default function AuditPage() {
 
   const fetchChainStatus = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/admin/audit-logs/verify-chain`, {
-        credentials: "include",
-      });
+      const res = await fetch("/api/proxy/admin/audit-logs/verify-chain");
       const data: ChainStatus = await res.json();
       setChainStatus(data);
     } catch {
@@ -121,9 +115,7 @@ export default function AuditPage() {
       if (startDate) params.set("startDate", startDate);
       if (endDate) params.set("endDate", endDate);
 
-      const res = await fetch(`${API}/admin/audit-logs/export?${params.toString()}`, {
-        credentials: "include",
-      });
+      const res = await fetch(`/api/proxy/admin/audit-logs/export?${params.toString()}`);
       const data = await res.json();
 
       // Download CSV

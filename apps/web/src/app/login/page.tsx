@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+// Login goes through the web-domain API route (sets HttpOnly cookie on this domain)
+// All other authenticated calls go through /api/proxy/* (see api/proxy/[...path]/route.ts)
 
 export default function LoginPage() {
   return (
@@ -28,10 +29,9 @@ function LoginPageInner() {
     setLoading(true);
 
     try {
-      const res = await fetch(`${API}/auth/login`, {
+      const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ email, password }),
       });
 
