@@ -459,7 +459,7 @@ export default function IssueCredentialsPage() {
             <div className="flex justify-center mb-6">
               <div className="p-4 bg-white rounded-2xl">
                 <QRCodeSVG
-                  value={`${typeof window !== "undefined" ? window.location.origin : ""}/employer?credentialId=${qrModal.id}`}
+                  value={`${typeof window !== "undefined" ? window.location.origin : ""}/verify/${qrModal.id}`}
                   size={200}
                   level="M"
                   includeMargin
@@ -469,7 +469,7 @@ export default function IssueCredentialsPage() {
             <p className="text-xs text-center font-mono text-slate-400 dark:text-slate-500 break-all mb-4">{qrModal.id}</p>
             <div className="flex gap-3">
               <button
-                onClick={() => navigator.clipboard.writeText(`${window.location.origin}/employer?credentialId=${qrModal.id}`)}
+                onClick={() => navigator.clipboard.writeText(`${window.location.origin}/verify/${qrModal.id}`)}
                 className="flex-1 py-2 px-4 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 Copy Link

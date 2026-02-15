@@ -18,6 +18,7 @@ interface VerificationResult {
     hashValid: boolean;
     signatureValid: boolean;
     verified: boolean;
+    tamperDetected: boolean;
     verifiedAt: string;
     orgName: string;
   };
@@ -65,8 +66,12 @@ function EmployerPageInner() {
 
   // Auto-fill credentialId from query param (e.g. QR code link)
   useEffect(() => {
-    const qpId = searchParams.get("credentialId");
+    let qpId = searchParams.get("credentialId");
     if (qpId && !autoVerified.current) {
+      // Strip QR payload prefix if present
+      if (qpId.startsWith("authenx:")) {
+        qpId = qpId.slice(8);
+      }
       setCredentialId(qpId);
     }
   }, [searchParams]);
@@ -225,11 +230,21 @@ function EmployerPageInner() {
                   <input
                     type="text"
                     value={credentialId}
-                    onChange={(e) => setCredentialId(e.target.value)}
-                    placeholder="e.g. cmlmkz8o5000ly1mz..."
+                    onChange={(e) => {
+                      let val = e.target.value.trim();
+                      // Strip QR payload prefix: authenx:<id>
+                      if (val.startsWith("authenx:")) {
+                        val = val.slice(8);
+                      }
+                      setCredentialId(val);
+                    }}
+                    placeholder="e.g. cmlmkz8o5000ly1mz... or authenx:<id>"
                     required
                     className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all font-mono text-sm"
                   />
+                  <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                    Paste a credential ID or QR payload (authenx:&lt;id&gt;)
+                  </p>
                 </div>
 
                 <button
@@ -364,13 +379,14 @@ function EmployerPageInner() {
                       >
                         {result.verification.verified
                           ? "VERIFIED"
-                          : "NOT VERIFIED"}
+                          : result.verification.tamperDetected
+                            ? "TAMPERED"
+                            : "NOT VERIFIED"}
                       </h3>
                       <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Verified at{" "}
-                        {new Date(
-                          result.verification.verifiedAt
-                        ).toLocaleString()}
+                        {result.verification.tamperDetected
+                          ? "⚠ Credential data has been tampered with — hash mismatch detected"
+                          : `Verified at ${new Date(result.verification.verifiedAt).toLocaleString()}`}
                       </p>
                     </div>
                   </div>
@@ -422,6 +438,22 @@ function EmployerPageInner() {
                       value={result.credentialId}
                       mono
                     />
+                  </div>
+                </div>
+
+                {/* Public verify link */}
+                <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/30 border-t border-slate-100 dark:border-slate-800">
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Public Verification Link (no login required)</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 text-xs font-mono text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 truncate">
+                      {typeof window !== "undefined" ? `${window.location.origin}/verify/${result.credentialId}` : ""}
+                    </code>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(`${window.location.origin}/verify/${result.credentialId}`)}
+                      className="text-xs font-medium text-blue-600 hover:text-blue-500 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/50 cursor-pointer whitespace-nowrap"
+                    >
+                      Copy
+                    </button>
                   </div>
                 </div>
               </div>

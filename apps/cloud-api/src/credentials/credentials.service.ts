@@ -4,6 +4,8 @@ import { IssuersService } from '../issuers/issuers.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { AuditAction } from '@prisma/client';
 import * as crypto from 'node:crypto';
+import * as nacl from 'tweetnacl';
+import * as naclUtil from 'tweetnacl-util';
 
 interface IssueCredentialDto {
   issuerCode: string;
@@ -161,5 +163,117 @@ export class CredentialsService {
 
   async findById(id: string) {
     return this.prisma.credential.findUnique({ where: { id } });
+  }
+
+  /**
+   * Full cryptographic verification of a credential.
+   * Rebuilds canonical JSON → SHA-256 hash check → Ed25519 signature check.
+   * Writes verification log + audit log.
+   */
+  async verify(id: string, opts: { orgName?: string; actor?: string; ipAddress?: string } = {}) {
+    const orgName = opts.orgName || 'Unknown';
+    const actor = opts.actor || 'public';
+    const ipAddress = opts.ipAddress || 'unknown';
+
+    // 1. Fetch credential
+    const credential = await this.prisma.credential.findUnique({ where: { id } });
+    if (!credential) {
+      await this.prisma.verificationLog.create({
+        data: { credentialId: id, orgName, result: false, hashValid: false, signatureValid: false },
+      });
+      await this.auditService.log({
+        action: AuditAction.CREDENTIAL_VERIFIED,
+        credentialId: id,
+        organization: orgName,
+        actor,
+        result: false,
+        detail: 'Credential not found',
+        ipAddress,
+      });
+      throw new HttpException('Credential not found', HttpStatus.NOT_FOUND);
+    }
+
+    // 2. Look up issuer + versioned key
+    const issuer = await this.issuersService.findByCode(credential.issuerCode);
+    if (!issuer) {
+      throw new HttpException(`Issuer "${credential.issuerCode}" not found`, HttpStatus.NOT_FOUND);
+    }
+
+    const keyVersion = credential.keyVersion ?? 1;
+    let publicKeyBase64: string;
+
+    const issuerKey = await this.prisma.issuerKey.findUnique({
+      where: { issuerCode_keyVersion: { issuerCode: credential.issuerCode, keyVersion } },
+    });
+
+    if (issuerKey) {
+      publicKeyBase64 = issuerKey.publicKey;
+    } else {
+      publicKeyBase64 = issuer.publicKeyEd25519;
+    }
+
+    // 3. Rebuild canonical JSON
+    const credentialPayload = {
+      branch: credential.branch,
+      cgpa: credential.cgpa,
+      degree: credential.degree,
+      graduationYear: credential.graduationYear,
+      issuerCode: credential.issuerCode,
+      name: credential.name,
+      rollNumber: credential.rollNumber,
+    };
+    const canonicalJson = JSON.stringify(credentialPayload);
+
+    // 4. SHA-256 hash check
+    const recomputedHash = crypto.createHash('sha256').update(canonicalJson).digest('hex');
+    const hashValid = recomputedHash === credential.hash;
+
+    // 5. Ed25519 signature check
+    const publicKeyBytes = naclUtil.decodeBase64(publicKeyBase64);
+    const messageBytes = naclUtil.decodeUTF8(canonicalJson);
+    const signatureBytes = naclUtil.decodeBase64(credential.signature);
+    const signatureValid = nacl.sign.detached.verify(messageBytes, signatureBytes, publicKeyBytes);
+
+    const verified = hashValid && signatureValid;
+
+    this.logger.log(`Verify credential ${id}: hash=${hashValid}, sig=${signatureValid}, keyVersion=${keyVersion}`);
+
+    // 6. Verification log
+    await this.prisma.verificationLog.create({
+      data: { credentialId: id, orgName, result: verified, hashValid, signatureValid },
+    });
+
+    // 7. Audit log
+    await this.auditService.log({
+      action: AuditAction.CREDENTIAL_VERIFIED,
+      credentialId: id,
+      organization: orgName,
+      actor,
+      result: verified,
+      detail: `hash=${hashValid}, sig=${signatureValid}`,
+      ipAddress,
+    });
+
+    return {
+      credentialId: credential.id,
+      issuerCode: credential.issuerCode,
+      keyVersion,
+      name: credential.name,
+      rollNumber: credential.rollNumber,
+      degree: credential.degree,
+      branch: credential.branch,
+      graduationYear: credential.graduationYear,
+      cgpa: credential.cgpa,
+      issuedAt: credential.createdAt,
+      verification: {
+        hashValid,
+        signatureValid,
+        verified,
+        tamperDetected: !hashValid,
+        verifiedAt: new Date().toISOString(),
+        orgName,
+        keyVersion,
+      },
+    };
   }
 }
