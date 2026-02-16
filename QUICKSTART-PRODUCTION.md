@@ -491,6 +491,41 @@ curl -s -X PATCH http://localhost:3001/admin/users/<USER_ID> \
 
 ---
 
+## Built-in QA Checklist
+
+AuthenX includes a built-in platform QA page accessible at `/admin/qa` (requires SUPER_ADMIN login).
+
+### What it tests (11 sequential checks):
+
+| # | Check | Endpoint |
+|---|-------|----------|
+| 1 | Auth Session | `GET /auth/me` |
+| 2 | Cloud API Health | `GET /admin/health` |
+| 3 | PostgreSQL | Extracted from health response |
+| 4 | Registered Issuers | `GET /admin/issuers` |
+| 5 | Connector Ping | `POST /admin/issuers/:code/ping` |
+| 6 | Platform Stats | `GET /admin/stats` |
+| 7 | Credential Explorer | `GET /admin/credentials` |
+| 8 | Public Verify | `GET /public/verify/:id` |
+| 9 | Audit Chain Integrity | `GET /admin/audit-logs/verify-chain` |
+| 10 | Analytics | `GET /admin/analytics` |
+| 11 | Audit Export | `GET /admin/audit-logs/export` |
+
+### Running QA after deployment:
+1. Log in as SUPER_ADMIN at `/login`
+2. Navigate to the **QA →** link in the admin dashboard header
+3. Click **Run All Checks** — all 11 steps execute sequentially
+4. Green checkmarks = healthy, red X = needs attention
+
+### System Status Widget
+
+The admin dashboard (`/admin`) now includes a **System Status** bar showing real-time health of:
+- Cloud API service
+- PostgreSQL database (with latency)
+- Registered issuer count
+
+---
+
 ## Need Help?
 
 1. **Development Questions**: See [DEPLOYMENT.md](DEPLOYMENT.md)

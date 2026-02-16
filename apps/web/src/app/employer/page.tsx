@@ -359,6 +359,14 @@ function EmployerPageInner() {
                 >
                   Copy
                 </button>
+                <a
+                  href={`/verify/${result.credentialId}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-medium text-emerald-600 hover:text-emerald-500 px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 cursor-pointer whitespace-nowrap"
+                >
+                  Open ↗
+                </a>
               </div>
             </div>
           </div>

@@ -50,6 +50,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(true);
   const [qrModal, setQrModal] = useState<{ id: string; name: string } | null>(null);
   const [userRole, setUserRole] = useState<string | null>(null);
+  const [health, setHealth] = useState<{ cloudApi: { ok: boolean }; postgres: { ok: boolean; latencyMs?: number }; checkedAt: string } | null>(null);
+  const [issuerCount, setIssuerCount] = useState<number | null>(null);
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -63,10 +65,14 @@ export default function AdminPage() {
       fetch("/api/proxy/admin/stats").then((r) => r.json()),
       fetch("/api/proxy/admin/analytics").then((r) => r.json()),
       fetch("/api/proxy/auth/me").then((r) => r.ok ? r.json() : null),
-    ]).then(([s, a, me]) => {
+      fetch("/api/proxy/admin/health").then((r) => r.ok ? r.json() : null).catch(() => null),
+      fetch("/api/proxy/admin/issuers").then((r) => r.ok ? r.json() : []).catch(() => []),
+    ]).then(([s, a, me, h, issuers]) => {
       setStats(s);
       setAnalytics(a);
       if (me?.role) setUserRole(me.role);
+      if (h) setHealth(h);
+      if (Array.isArray(issuers)) setIssuerCount(issuers.length);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -138,6 +144,9 @@ export default function AdminPage() {
             <a href="/admin/audit" className="text-sm font-medium text-amber-600 dark:text-amber-400 hover:text-amber-500 dark:hover:text-amber-300 transition-colors">
               Audit Trail →
             </a>
+            <a href="/admin/qa" className="text-sm font-medium text-cyan-600 dark:text-cyan-400 hover:text-cyan-500 dark:hover:text-cyan-300 transition-colors">
+              QA →
+            </a>
             <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-3 py-1 rounded-full">
               Super Admin
             </span>
@@ -195,6 +204,21 @@ export default function AdminPage() {
               }
               color="red"
             />
+          </div>
+        )}
+
+        {/* System Status */}
+        {health && (
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider">System Status</h3>
+              <span className="text-[10px] text-slate-400">{new Date(health.checkedAt).toLocaleTimeString()}</span>
+            </div>
+            <div className="flex flex-wrap gap-4">
+              <StatusDot label="Cloud API" ok={health.cloudApi.ok} />
+              <StatusDot label="PostgreSQL" ok={health.postgres.ok} detail={health.postgres.latencyMs ? `${health.postgres.latencyMs}ms` : undefined} />
+              {issuerCount !== null && <StatusDot label={`Issuers (${issuerCount})`} ok={issuerCount > 0} />}
+            </div>
           </div>
         )}
 
@@ -443,6 +467,16 @@ function StatCard({
         <p className="text-2xl font-bold text-slate-900 dark:text-white">{value}</p>
         <p className="text-sm text-slate-500 dark:text-slate-400">{label}</p>
       </div>
+    </div>
+  );
+}
+
+function StatusDot({ label, ok, detail }: { label: string; ok: boolean; detail?: string }) {
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <span className={`w-2.5 h-2.5 rounded-full ${ok ? "bg-emerald-400 shadow-sm shadow-emerald-400/50" : "bg-red-400 shadow-sm shadow-red-400/50"}`} />
+      <span className="text-slate-700 dark:text-slate-300">{label}</span>
+      {detail && <span className="text-xs text-slate-400">({detail})</span>}
     </div>
   );
 }

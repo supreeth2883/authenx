@@ -14,6 +14,10 @@ export function middleware(request: NextRequest) {
   const token = request.cookies.get("token")?.value;
 
   if (!token) {
+    // Root "/" → just redirect to /login without ?redirect param
+    if (pathname === "/") {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
     const loginUrl = new URL("/login", request.url);
     const redirectTarget = request.nextUrl.search
       ? `${pathname}${request.nextUrl.search}`
@@ -34,6 +38,16 @@ export function middleware(request: NextRequest) {
     if (payload.exp && Date.now() / 1000 > payload.exp) {
       const loginUrl = new URL("/login", request.url);
       return NextResponse.redirect(loginUrl);
+    }
+
+    // Root "/" — redirect logged-in users to their portal
+    if (pathname === "/") {
+      const dest =
+        role === "SUPER_ADMIN" ? "/admin" :
+        role === "COLLEGE_ADMIN" ? "/college" :
+        role === "EMPLOYER" ? "/employer" :
+        "/login";
+      return NextResponse.redirect(new URL(dest, request.url));
     }
 
     // STRICT role-based route protection — each portal is isolated

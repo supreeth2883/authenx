@@ -22,10 +22,22 @@ function LoginPageInner() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{ email?: string; password?: string }>({});
+
+  const validate = () => {
+    const errs: { email?: string; password?: string } = {};
+    if (!email.trim()) errs.email = "Email is required";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errs.email = "Enter a valid email address";
+    if (!password) errs.password = "Password is required";
+    else if (password.length < 6) errs.password = "Must be at least 6 characters";
+    setFieldErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!validate()) return;
     setLoading(true);
 
     try {
@@ -35,9 +47,12 @@ function LoginPageInner() {
         body: JSON.stringify({ email, password }),
       });
 
+      if (res.status === 429) {
+        throw new Error("Too many login attempts — please wait a moment.");
+      }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || "Invalid credentials");
+        throw new Error(data.message || "Invalid email or password.");
       }
 
       const data = await res.json();
@@ -65,8 +80,8 @@ function LoginPageInner() {
             router.push("/login");
         }
       }
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
     }
@@ -87,6 +102,15 @@ function LoginPageInner() {
       </div>
 
       <div className="relative w-full max-w-md">
+        {/* Environment badge */}
+        {typeof window !== "undefined" && window.location.hostname !== "localhost" && (
+          <div className="flex justify-center mb-4">
+            <span className="text-[10px] font-semibold tracking-widest uppercase px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              Production
+            </span>
+          </div>
+        )}
+
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-3 mb-2">
@@ -134,12 +158,14 @@ function LoginPageInner() {
                 id="email"
                 type="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
+                onChange={(e) => { setEmail(e.target.value); setFieldErrors((f) => ({ ...f, email: undefined })); }}
                 autoComplete="email"
                 placeholder="you@university.edu"
-                className="w-full px-4 py-3 bg-slate-900/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all"
+                className={`w-full px-4 py-3 bg-slate-900/50 border rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 transition-all ${
+                  fieldErrors.email ? "border-red-500/60 focus:ring-red-400/50" : "border-slate-600/50 focus:ring-emerald-400/50 focus:border-emerald-400/50"
+                }`}
               />
+              {fieldErrors.email && <p className="mt-1 text-xs text-red-400">{fieldErrors.email}</p>}
             </div>
 
             {/* Password */}
@@ -154,12 +180,14 @@ function LoginPageInner() {
                 id="password"
                 type="password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
+                onChange={(e) => { setPassword(e.target.value); setFieldErrors((f) => ({ ...f, password: undefined })); }}
                 autoComplete="current-password"
                 placeholder="••••••••"
-                className="w-full px-4 py-3 bg-slate-900/50 border border-slate-600/50 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:border-emerald-400/50 transition-all"
+                className={`w-full px-4 py-3 bg-slate-900/50 border rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 transition-all ${
+                  fieldErrors.password ? "border-red-500/60 focus:ring-red-400/50" : "border-slate-600/50 focus:ring-emerald-400/50 focus:border-emerald-400/50"
+                }`}
               />
+              {fieldErrors.password && <p className="mt-1 text-xs text-red-400">{fieldErrors.password}</p>}
             </div>
 
             {/* Error message */}
@@ -186,7 +214,7 @@ function LoginPageInner() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 px-4 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-white font-semibold rounded-xl shadow-lg shadow-emerald-500/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full py-3 px-4 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-white font-semibold rounded-xl shadow-lg shadow-emerald-500/20 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {loading ? (
                 <span className="inline-flex items-center gap-2">
