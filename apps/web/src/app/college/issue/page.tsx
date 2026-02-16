@@ -43,6 +43,9 @@ interface IssuedCredential {
   cgpa: number;
   hash: string;
   signature: string;
+  status: "ISSUED" | "REVOKED";
+  revokedAt: string | null;
+  revokedReason: string | null;
   createdAt: string;
 }
 
@@ -93,6 +96,12 @@ export default function IssueCredentialsPage() {
 
   /* qr modal */
   const [qrModal, setQrModal] = useState<{ id: string; name: string } | null>(null);
+
+  /* revoke modal */
+  const [revokeModal, setRevokeModal] = useState<{ id: string; name: string; rollNumber: string } | null>(null);
+  const [revokeReason, setRevokeReason] = useState("");
+  const [revoking, setRevoking] = useState(false);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
 
   /* copy feedback */
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -279,6 +288,31 @@ export default function IssueCredentialsPage() {
       a.click();
     };
     img.src = "data:image/svg+xml;base64," + btoa(svgData);
+  };
+
+  const handleRevoke = async () => {
+    if (!revokeModal || !revokeReason.trim()) return;
+    setRevoking(true);
+    setRevokeError(null);
+    try {
+      const res = await fetch(`/api/proxy/college/credentials/${revokeModal.id}/revoke`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: revokeReason.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || `Error ${res.status}`);
+      }
+      // Refresh issued list
+      fetchIssued(issuedPage, issuedSearch);
+      setRevokeModal(null);
+      setRevokeReason("");
+    } catch (ex: unknown) {
+      setRevokeError(ex instanceof Error ? ex.message : "Revoke failed");
+    } finally {
+      setRevoking(false);
+    }
   };
 
   const toggleRowExpand = (idx: number) => {
@@ -591,19 +625,33 @@ export default function IssueCredentialsPage() {
                         <th className="text-left px-6 py-3 font-semibold text-slate-600 dark:text-slate-300">Branch</th>
                         <th className="text-left px-6 py-3 font-semibold text-slate-600 dark:text-slate-300">Year</th>
                         <th className="text-left px-6 py-3 font-semibold text-slate-600 dark:text-slate-300">CGPA</th>
+                        <th className="text-left px-6 py-3 font-semibold text-slate-600 dark:text-slate-300">Status</th>
                         <th className="text-left px-6 py-3 font-semibold text-slate-600 dark:text-slate-300">Issued</th>
                         <th className="text-right px-6 py-3 font-semibold text-slate-600 dark:text-slate-300">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {issuedData.data.map((cred) => (
-                        <tr key={cred.id} className="border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/30">
+                        <tr key={cred.id} className={`border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/30 ${cred.status === "REVOKED" ? "opacity-60" : ""}`}>
                           <td className="px-6 py-3 text-slate-900 dark:text-white font-medium">{cred.name}</td>
                           <td className="px-6 py-3 font-mono text-xs text-slate-600 dark:text-slate-300">{cred.rollNumber}</td>
                           <td className="px-6 py-3 text-slate-500 dark:text-slate-400">{cred.degree}</td>
                           <td className="px-6 py-3 text-slate-500 dark:text-slate-400">{cred.branch}</td>
                           <td className="px-6 py-3 text-slate-500 dark:text-slate-400">{cred.graduationYear}</td>
                           <td className="px-6 py-3 text-slate-500 dark:text-slate-400">{cred.cgpa}</td>
+                          <td className="px-6 py-3">
+                            {cred.status === "REVOKED" ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400" title={cred.revokedReason || undefined}>
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                                Revoked
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400">
+                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>
+                                Active
+                              </span>
+                            )}
+                          </td>
                           <td className="px-6 py-3 text-xs text-slate-400 dark:text-slate-500">
                             {new Date(cred.createdAt).toLocaleDateString()}
                           </td>
@@ -641,6 +689,16 @@ export default function IssueCredentialsPage() {
                               >
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z" /><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z" /></svg>
                               </button>
+                              {/* Revoke button — only for ISSUED */}
+                              {cred.status === "ISSUED" && (
+                                <button
+                                  onClick={() => setRevokeModal({ id: cred.id, name: cred.name, rollNumber: cred.rollNumber })}
+                                  title="Revoke credential"
+                                  className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 text-slate-400 hover:text-red-600 dark:hover:text-red-400 cursor-pointer transition-colors"
+                                >
+                                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -718,6 +776,68 @@ export default function IssueCredentialsPage() {
                 className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors cursor-pointer"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Revoke Confirmation Modal */}
+      {revokeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => { setRevokeModal(null); setRevokeReason(""); setRevokeError(null); }}>
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-red-200 dark:border-red-800 w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-950 flex items-center justify-center flex-shrink-0">
+                <svg className="w-5 h-5 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Revoke Credential</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400">This action cannot be undone.</p>
+              </div>
+            </div>
+
+            <div className="bg-red-50 dark:bg-red-950/30 rounded-xl p-3 mb-4 text-sm">
+              <p className="text-red-800 dark:text-red-300">
+                <span className="font-semibold">{revokeModal.name}</span> — {revokeModal.rollNumber}
+              </p>
+              <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-mono">{revokeModal.id}</p>
+            </div>
+
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Reason for revocation *</label>
+            <textarea
+              value={revokeReason}
+              onChange={(e) => setRevokeReason(e.target.value)}
+              placeholder="e.g. Fraudulent application, data error, student expelled…"
+              rows={3}
+              className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm resize-none"
+            />
+
+            {revokeError && (
+              <p className="text-sm text-red-600 dark:text-red-400 mt-2">{revokeError}</p>
+            )}
+
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={() => { setRevokeModal(null); setRevokeReason(""); setRevokeError(null); }}
+                className="flex-1 py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRevoke}
+                disabled={!revokeReason.trim() || revoking}
+                className="flex-1 py-2 px-3 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {revoking ? (
+                  <>
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                    Revoking…
+                  </>
+                ) : (
+                  "Revoke Credential"
+                )}
               </button>
             </div>
           </div>

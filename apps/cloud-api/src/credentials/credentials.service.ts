@@ -2,7 +2,7 @@ import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { IssuersService } from '../issuers/issuers.service.js';
 import { AuditService } from '../audit/audit.service.js';
-import { AuditAction } from '@prisma/client';
+import { AuditAction, CredentialStatus } from '@prisma/client';
 import * as crypto from 'node:crypto';
 import * as nacl from 'tweetnacl';
 import * as naclUtil from 'tweetnacl-util';
@@ -166,6 +166,55 @@ export class CredentialsService {
   }
 
   /**
+   * Revoke a credential. Only the issuer that created it can revoke.
+   */
+  async revoke(id: string, opts: { issuerCode: string; reason: string; actor?: string; ipAddress?: string }) {
+    const credential = await this.prisma.credential.findUnique({ where: { id } });
+    if (!credential) {
+      throw new HttpException('Credential not found', HttpStatus.NOT_FOUND);
+    }
+
+    if (credential.issuerCode !== opts.issuerCode) {
+      throw new HttpException(
+        'You can only revoke credentials issued by your institution',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    if (credential.status === CredentialStatus.REVOKED) {
+      throw new HttpException('Credential is already revoked', HttpStatus.CONFLICT);
+    }
+
+    const updated = await this.prisma.credential.update({
+      where: { id },
+      data: {
+        status: CredentialStatus.REVOKED,
+        revokedAt: new Date(),
+        revokedReason: opts.reason,
+      },
+    });
+
+    await this.auditService.log({
+      action: AuditAction.CREDENTIAL_REVOKED,
+      credentialId: id,
+      organization: opts.issuerCode,
+      actor: opts.actor,
+      result: true,
+      detail: `Revoked: ${opts.reason}`,
+      ipAddress: opts.ipAddress,
+    });
+
+    this.logger.log(`Credential revoked: ${id} by ${opts.issuerCode} — ${opts.reason}`);
+
+    return {
+      credentialId: updated.id,
+      status: updated.status,
+      revokedAt: updated.revokedAt,
+      revokedReason: updated.revokedReason,
+    };
+  }
+
+  /**
    * Paginated credential list, optionally scoped by issuerCode.
    */
   async findAll(opts: {
@@ -299,7 +348,10 @@ export class CredentialsService {
 
     const verified = hashValid && signatureValid;
 
-    this.logger.log(`Verify credential ${id}: hash=${hashValid}, sig=${signatureValid}, keyVersion=${keyVersion}`);
+    // Check revocation status
+    const revoked = credential.status === CredentialStatus.REVOKED;
+
+    this.logger.log(`Verify credential ${id}: hash=${hashValid}, sig=${signatureValid}, revoked=${revoked}, keyVersion=${keyVersion}`);
 
     // 6. Verification log
     await this.prisma.verificationLog.create({
@@ -328,10 +380,14 @@ export class CredentialsService {
       graduationYear: credential.graduationYear,
       cgpa: credential.cgpa,
       issuedAt: credential.createdAt,
+      status: credential.status,
+      revokedAt: credential.revokedAt,
+      revokedReason: credential.revokedReason,
       verification: {
         hashValid,
         signatureValid,
-        verified,
+        verified: verified && !revoked,
+        revoked,
         tamperDetected: !hashValid,
         verifiedAt: new Date().toISOString(),
         orgName,

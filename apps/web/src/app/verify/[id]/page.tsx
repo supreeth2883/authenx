@@ -13,10 +13,14 @@ interface VerificationResult {
   graduationYear: number;
   cgpa: number;
   issuedAt: string;
+  status: "ISSUED" | "REVOKED";
+  revokedAt: string | null;
+  revokedReason: string | null;
   verification: {
     hashValid: boolean;
     signatureValid: boolean;
     verified: boolean;
+    revoked: boolean;
     tamperDetected: boolean;
     verifiedAt: string;
     orgName: string;
@@ -93,39 +97,63 @@ export default function PublicVerifyPage() {
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
             {/* Status Banner */}
             <div className={`px-6 py-6 text-center ${
-              result.verification.verified
-                ? "bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-800"
-                : "bg-red-50 dark:bg-red-950/40 border-b border-red-200 dark:border-red-800"
+              result.verification.revoked
+                ? "bg-red-50 dark:bg-red-950/40 border-b border-red-200 dark:border-red-800"
+                : result.verification.verified
+                  ? "bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-800"
+                  : "bg-red-50 dark:bg-red-950/40 border-b border-red-200 dark:border-red-800"
             }`}>
-              {result.verification.verified ? (
-                <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center">
-                  <svg className="w-9 h-9 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                  </svg>
-                </div>
+              {result.verification.revoked ? (
+                <>
+                  <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
+                    <svg className="w-9 h-9 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" />
+                    </svg>
+                  </div>
+                  <h2 className="text-2xl font-bold text-red-700 dark:text-red-300">CREDENTIAL REVOKED</h2>
+                  <p className="text-sm text-red-600 dark:text-red-400 mt-1">
+                    This credential has been revoked by the issuing institution.
+                  </p>
+                  {result.revokedReason && (
+                    <p className="text-sm text-red-500 dark:text-red-400 mt-2 italic">
+                      Reason: {result.revokedReason}
+                    </p>
+                  )}
+                  {result.revokedAt && (
+                    <p className="text-xs text-red-400 dark:text-red-500 mt-1">
+                      Revoked on {new Date(result.revokedAt).toLocaleDateString()}
+                    </p>
+                  )}
+                </>
+              ) : result.verification.verified ? (
+                <>
+                  <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center">
+                    <svg className="w-9 h-9 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                    </svg>
+                  </div>
+                  <h2 className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">CREDENTIAL VERIFIED</h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                    Checked at {new Date(result.verification.verifiedAt).toLocaleString()}
+                  </p>
+                </>
               ) : (
-                <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
-                  <svg className="w-9 h-9 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                  </svg>
-                </div>
+                <>
+                  <div className="w-16 h-16 mx-auto mb-3 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
+                    <svg className="w-9 h-9 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                  </div>
+                  <h2 className="text-2xl font-bold text-red-700 dark:text-red-300">
+                    {result.verification.tamperDetected ? "TAMPER DETECTED" : "VERIFICATION FAILED"}
+                  </h2>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                    {result.verification.tamperDetected
+                      ? "This credential's data has been altered — hash mismatch"
+                      : `Checked at ${new Date(result.verification.verifiedAt).toLocaleString()}`}
+                  </p>
+                </>
               )}
-              <h2 className={`text-2xl font-bold ${
-                result.verification.verified
-                  ? "text-emerald-700 dark:text-emerald-300"
-                  : "text-red-700 dark:text-red-300"
-              }`}>
-                {result.verification.verified
-                  ? "CREDENTIAL VERIFIED"
-                  : result.verification.tamperDetected
-                    ? "TAMPER DETECTED"
-                    : "VERIFICATION FAILED"}
-              </h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                {result.verification.tamperDetected
-                  ? "⚠ This credential's data has been altered — hash mismatch"
-                  : `Checked at ${new Date(result.verification.verifiedAt).toLocaleString()}`}
-              </p>
             </div>
 
             {/* Crypto Checks */}

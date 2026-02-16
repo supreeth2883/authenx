@@ -127,25 +127,34 @@ model Verification {
   employer Org @relation(fields: [employerOrgId], references: [id])
 }
 
+enum CredentialStatus {
+  ISSUED
+  REVOKED
+}
+
 model Credential {
-  id             String   @id @default(cuid())
+  id             String           @id @default(cuid())
   issuerCode     String
-  keyVersion     Int      @default(1)
+  keyVersion     Int              @default(1)
   name           String
   rollNumber     String
   degree         String
   branch         String
   graduationYear Int
   cgpa           Float
-  hash           String   @unique
+  hash           String           @unique
   signature      String
-  createdAt      DateTime @default(now())
+  status         CredentialStatus @default(ISSUED)
+  revokedAt      DateTime?
+  revokedReason  String?
+  createdAt      DateTime         @default(now())
 
   issuer Issuer @relation(fields: [issuerCode], references: [issuerCode])
 
   @@index([issuerCode])
   @@index([rollNumber])
   @@index([issuerCode, keyVersion])
+  @@index([status])
 }
 
 model VerificationLog {
@@ -163,6 +172,7 @@ model VerificationLog {
 enum AuditAction {
   CREDENTIAL_ISSUED
   CREDENTIAL_VERIFIED
+  CREDENTIAL_REVOKED
 }
 
 model AuditLog {

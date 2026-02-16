@@ -2,7 +2,9 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Body,
+  Param,
   Query,
   UseGuards,
   Logger,
@@ -71,6 +73,40 @@ export class CollegeCredentialsController {
       graduationYear: !isNaN(graduationYear) ? graduationYear : undefined,
       page,
       limit,
+    });
+  }
+
+  /**
+   * PATCH /college/credentials/:id/revoke — revoke a credential
+   * Only the COLLEGE_ADMIN whose issuerCode matches can revoke.
+   */
+  @Patch(':id/revoke')
+  async revoke(
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+    @Req() req: Request,
+  ) {
+    const user = (req as any).user;
+    const issuerCode = user?.issuerCode;
+    if (!issuerCode) {
+      throw new HttpException(
+        'User has no associated issuerCode',
+        HttpStatus.FORBIDDEN,
+      );
+    }
+
+    if (!reason?.trim()) {
+      throw new HttpException(
+        'Revocation reason is required',
+        HttpStatus.BAD_REQUEST,
+      );
+    }
+
+    return this.credentialsService.revoke(id, {
+      issuerCode,
+      reason: reason.trim(),
+      actor: user.email,
+      ipAddress: req.ip || (req.headers as any)?.['x-forwarded-for']?.toString() || 'unknown',
     });
   }
 
