@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -18,22 +18,127 @@ export interface IssueResult {
 }
 
 @Injectable()
-export class ErpService {
+export class ErpService implements OnModuleInit {
   private readonly logger = new Logger(ErpService.name);
-  private readonly erpDataPath = path.join(process.cwd(), 'data', 'mock_erp.json');
+
+  /** Persistent store lives in .data/ so Render persistent-disk survives redeploys */
+  private readonly dataDir = path.join(process.cwd(), '.data');
+  private readonly persistPath = path.join(this.dataDir, 'erp_records.json');
+  /** Legacy seed file shipped with the repo */
+  private readonly legacySeedPath = path.join(process.cwd(), 'data', 'mock_erp.json');
+
   private readonly cloudApiUrl = process.env.CLOUD_API_URL ?? 'http://localhost:3001';
   private readonly issuerCode = process.env.ISSUER_CODE ?? 'CVR';
 
-  async publishResults() {
-    // 1. Read mock ERP data
-    if (!fs.existsSync(this.erpDataPath)) {
-      throw new Error(`Mock ERP data not found at ${this.erpDataPath}`);
+  /** In-memory cache — source of truth is the persisted file */
+  private students: Student[] = [];
+
+  onModuleInit() {
+    this.loadStudents();
+  }
+
+  /* ── Persistence helpers ─────────────────────────────────── */
+
+  private loadStudents(): void {
+    if (!fs.existsSync(this.dataDir)) {
+      fs.mkdirSync(this.dataDir, { recursive: true });
     }
 
-    const students: Student[] = JSON.parse(
-      fs.readFileSync(this.erpDataPath, 'utf-8'),
+    // Try persistent store first
+    if (fs.existsSync(this.persistPath)) {
+      this.students = JSON.parse(fs.readFileSync(this.persistPath, 'utf-8'));
+      this.logger.log(`Loaded ${this.students.length} ERP records from ${this.persistPath}`);
+      return;
+    }
+
+    // Fall back to legacy seed file (first deploy)
+    if (fs.existsSync(this.legacySeedPath)) {
+      this.students = JSON.parse(fs.readFileSync(this.legacySeedPath, 'utf-8'));
+      this.saveStudents(); // persist so future restarts use .data/
+      this.logger.log(`Migrated ${this.students.length} ERP records from legacy seed`);
+      return;
+    }
+
+    // Empty store
+    this.students = [];
+    this.saveStudents();
+    this.logger.warn('No ERP records found — store is empty. Use admin API to seed.');
+  }
+
+  private saveStudents(): void {
+    if (!fs.existsSync(this.dataDir)) {
+      fs.mkdirSync(this.dataDir, { recursive: true });
+    }
+    fs.writeFileSync(this.persistPath, JSON.stringify(this.students, null, 2));
+  }
+
+  /* ── Admin CRUD (mock ERP management) ────────────────────── */
+
+  listStudents(): { count: number; records: Student[] } {
+    return { count: this.students.length, records: this.students };
+  }
+
+  upsertStudent(record: Student): { action: 'created' | 'updated'; record: Student } {
+    const idx = this.students.findIndex(
+      (s) => s.rollNumber.trim().toLowerCase() === record.rollNumber.trim().toLowerCase(),
     );
-    this.logger.log(`Read ${students.length} students from mock ERP`);
+    const canonical: Student = {
+      name: record.name.trim(),
+      rollNumber: record.rollNumber.trim(),
+      degree: record.degree.trim(),
+      branch: record.branch.trim(),
+      graduationYear: record.graduationYear,
+      cgpa: record.cgpa,
+    };
+
+    if (idx >= 0) {
+      this.students[idx] = canonical;
+      this.saveStudents();
+      return { action: 'updated', record: canonical };
+    }
+
+    this.students.push(canonical);
+    this.saveStudents();
+    return { action: 'created', record: canonical };
+  }
+
+  upsertBatch(records: Student[]): { created: number; updated: number; total: number } {
+    let created = 0;
+    let updated = 0;
+    for (const r of records) {
+      const result = this.upsertStudent(r);
+      if (result.action === 'created') created++;
+      else updated++;
+    }
+    return { created, updated, total: this.students.length };
+  }
+
+  deleteStudent(rollNumber: string): boolean {
+    const idx = this.students.findIndex(
+      (s) => s.rollNumber.trim().toLowerCase() === rollNumber.trim().toLowerCase(),
+    );
+    if (idx < 0) return false;
+    this.students.splice(idx, 1);
+    this.saveStudents();
+    return true;
+  }
+
+  lookupStudent(rollNumber: string): Student | null {
+    return (
+      this.students.find(
+        (s) => s.rollNumber.trim().toLowerCase() === rollNumber.trim().toLowerCase(),
+      ) ?? null
+    );
+  }
+
+  /* ── Publish flow (connector → cloud-api) ────────────────── */
+
+  async publishResults() {
+    if (this.students.length === 0) {
+      throw new Error('No ERP records loaded — use admin API to seed records first.');
+    }
+
+    this.logger.log(`Publishing ${this.students.length} students from mock ERP`);
 
     // 2. Issue credentials one by one
     const results: IssueResult[] = [];
@@ -41,7 +146,7 @@ export class ErpService {
     let issued = 0;
     let failed = 0;
 
-    for (const student of students) {
+    for (const student of this.students) {
       try {
         const res = await fetch(`${this.cloudApiUrl}/credentials/issue`, {
           method: 'POST',
@@ -81,7 +186,7 @@ export class ErpService {
     }
 
     return {
-      total: students.length,
+      total: this.students.length,
       issued,
       failed,
       credentialIds,
@@ -108,15 +213,11 @@ export class ErpService {
     reason?: string;
     diff?: Record<string, { expected: unknown; received: unknown }>;
   } {
-    if (!fs.existsSync(this.erpDataPath)) {
-      return { matched: false, reason: 'ERP_DATA_NOT_FOUND' };
+    if (this.students.length === 0) {
+      return { matched: false, reason: 'ERP_EMPTY' };
     }
 
-    const students: Student[] = JSON.parse(
-      fs.readFileSync(this.erpDataPath, 'utf-8'),
-    );
-
-    const found = students.find(
+    const found = this.students.find(
       (s) => s.rollNumber.trim().toLowerCase() === input.rollNumber.trim().toLowerCase(),
     );
 

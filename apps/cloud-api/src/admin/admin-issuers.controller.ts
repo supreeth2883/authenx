@@ -197,4 +197,84 @@ export class AdminIssuersController {
       };
     }
   }
+
+  /**
+   * GET /admin/issuers/:issuerCode/erp/records — list mock ERP records via connector
+   * Proxies to connector GET /erp/admin/records (requires CONNECTOR_ADMIN_KEY)
+   */
+  @Get(':issuerCode/erp/records')
+  async listErpRecords(@Param('issuerCode') issuerCode: string) {
+    const issuer = await this.prisma.issuer.findUnique({ where: { issuerCode } });
+    if (!issuer) {
+      throw new HttpException(`Issuer "${issuerCode}" not found`, HttpStatus.NOT_FOUND);
+    }
+
+    const adminKey = process.env.CONNECTOR_ADMIN_KEY;
+    if (!adminKey) {
+      throw new HttpException('CONNECTOR_ADMIN_KEY not configured on cloud-api', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    try {
+      const res = await fetch(`${issuer.connectorBaseUrl}/erp/admin/records`, {
+        headers: { Authorization: `Bearer ${adminKey}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        throw new Error(`Connector returned HTTP ${res.status}: ${body}`);
+      }
+      return await res.json();
+    } catch (err) {
+      throw new HttpException(
+        `Failed to fetch ERP records: ${(err as Error).message}`,
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+  }
+
+  /**
+   * POST /admin/issuers/:issuerCode/erp/upsert-batch — seed mock ERP records
+   * Proxies to connector POST /erp/admin/upsert-batch
+   */
+  @Post(':issuerCode/erp/upsert-batch')
+  async seedErpRecords(
+    @Param('issuerCode') issuerCode: string,
+    @Body() body: { records?: Array<{ rollNumber: string; name: string; degree?: string; branch?: string; graduationYear?: number; cgpa?: number }> },
+  ) {
+    const issuer = await this.prisma.issuer.findUnique({ where: { issuerCode } });
+    if (!issuer) {
+      throw new HttpException(`Issuer "${issuerCode}" not found`, HttpStatus.NOT_FOUND);
+    }
+
+    if (!Array.isArray(body?.records) || body.records.length === 0) {
+      throw new HttpException('records array is required', HttpStatus.BAD_REQUEST);
+    }
+
+    const adminKey = process.env.CONNECTOR_ADMIN_KEY;
+    if (!adminKey) {
+      throw new HttpException('CONNECTOR_ADMIN_KEY not configured on cloud-api', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    try {
+      const res = await fetch(`${issuer.connectorBaseUrl}/erp/admin/upsert-batch`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminKey}`,
+        },
+        body: JSON.stringify({ records: body.records }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`Connector returned HTTP ${res.status}: ${errBody}`);
+      }
+      return await res.json();
+    } catch (err) {
+      throw new HttpException(
+        `Failed to seed ERP records: ${(err as Error).message}`,
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+  }
 }

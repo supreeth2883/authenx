@@ -91,6 +91,34 @@ export default function IssueCredentialsPage() {
   const [results, setResults] = useState<PublishResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  /* precheck state: rollNumber -> { status, detail } */
+  const [precheckMap, setPrecheckMap] = useState<Record<string, { status: "checking" | "matched" | "not_found" | "mismatch" | "error"; detail?: string }>>({});
+
+  const handlePrecheck = async (record: StudentRecord) => {
+    setPrecheckMap((prev) => ({ ...prev, [record.rollNumber]: { status: "checking" } }));
+    try {
+      const res = await fetch("/api/proxy/college/credentials/precheck", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ issuerCode, ...record }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `HTTP ${res.status}`);
+      }
+      const data = await res.json();
+      if (data.matched) {
+        setPrecheckMap((prev) => ({ ...prev, [record.rollNumber]: { status: "matched", detail: "Found in ERP" } }));
+      } else if (data.reason === "NOT_FOUND" || data.reason === "ERP_EMPTY") {
+        setPrecheckMap((prev) => ({ ...prev, [record.rollNumber]: { status: "not_found", detail: data.reason === "ERP_EMPTY" ? "ERP store is empty" : "Not found in ERP" } }));
+      } else {
+        setPrecheckMap((prev) => ({ ...prev, [record.rollNumber]: { status: "mismatch", detail: `Mismatch: ${Object.keys(data.diff || {}).join(", ")}` } }));
+      }
+    } catch (err) {
+      setPrecheckMap((prev) => ({ ...prev, [record.rollNumber]: { status: "error", detail: (err as Error).message } }));
+    }
+  };
+
   /* csv */
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -491,6 +519,7 @@ export default function IssueCredentialsPage() {
                         <th className="text-left px-6 py-3 font-semibold text-slate-600 dark:text-slate-300">Branch</th>
                         <th className="text-left px-6 py-3 font-semibold text-slate-600 dark:text-slate-300">Year</th>
                         <th className="text-left px-6 py-3 font-semibold text-slate-600 dark:text-slate-300">CGPA</th>
+                        <th className="text-left px-6 py-3 font-semibold text-slate-600 dark:text-slate-300">ERP</th>
                         <th className="text-right px-6 py-3 font-semibold text-slate-600 dark:text-slate-300">Action</th>
                       </tr>
                     </thead>
@@ -503,6 +532,19 @@ export default function IssueCredentialsPage() {
                           <td className="px-6 py-3 text-slate-500 dark:text-slate-400">{r.branch}</td>
                           <td className="px-6 py-3 text-slate-500 dark:text-slate-400">{r.graduationYear}</td>
                           <td className="px-6 py-3 text-slate-500 dark:text-slate-400">{r.cgpa}</td>
+                          <td className="px-6 py-3">
+                            {(() => {
+                              const pc = precheckMap[r.rollNumber];
+                              if (!pc) return (
+                                <button onClick={() => handlePrecheck(r)} className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-500 cursor-pointer whitespace-nowrap">Check ERP</button>
+                              );
+                              if (pc.status === "checking") return <span className="text-xs text-slate-400">Checking…</span>;
+                              if (pc.status === "matched") return <span className="text-xs text-emerald-600 dark:text-emerald-400">✓ Found</span>;
+                              if (pc.status === "not_found") return <span className="text-xs text-red-500" title={pc.detail}>✗ Not found</span>;
+                              if (pc.status === "mismatch") return <span className="text-xs text-amber-500" title={pc.detail}>⚠ Mismatch</span>;
+                              return <span className="text-xs text-red-400" title={pc.detail}>Error</span>;
+                            })()}
+                          </td>
                           <td className="px-6 py-3 text-right">
                             <button onClick={() => removeRecord(i)} className="text-xs text-red-500 hover:text-red-400 cursor-pointer">Remove</button>
                           </td>
@@ -895,7 +937,9 @@ function ResultRow({
           {item.status === "ALREADY_ISSUED" && !item.credentialId && (
             <span>{item.reason || "Credential already exists"}</span>
           )}
-          {item.status === "NOT_FOUND" && <span>{item.reason || "Roll number not found in ERP"}</span>}
+          {item.status === "NOT_FOUND" && (
+            <span className="text-red-500">{item.reason || "Student not found in ERP source. Seed mock ERP via Admin → Issuers, or connect a real ERP."}</span>
+          )}
           {item.status === "ERROR" && <span className="text-red-500">{item.reason || "Unknown error"}</span>}
           {item.status === "MISMATCH" && (
             <button

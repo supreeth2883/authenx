@@ -110,6 +110,37 @@ export class CollegeCredentialsController {
     });
   }
 
+  /**
+   * POST /college/credentials/precheck — validate a student against connector ERP
+   * Returns { matched, reason, diff } without issuing anything.
+   */
+  @Post('precheck')
+  async precheck(
+    @Body() body: { issuerCode: string; rollNumber: string; name: string; degree: string; branch: string; graduationYear: number; cgpa: number },
+    @Req() req: Request,
+  ) {
+    const user = (req as any).user;
+    const issuerCode = user?.issuerCode;
+    if (!issuerCode) {
+      throw new HttpException('User has no associated issuerCode', HttpStatus.FORBIDDEN);
+    }
+
+    // Use the user's issuerCode, not whatever was passed in body
+    const issuer = await this.issuersService.findByCode(issuerCode);
+    if (!issuer) {
+      throw new HttpException(`Issuer "${issuerCode}" not found`, HttpStatus.NOT_FOUND);
+    }
+
+    return this.validateWithConnector(issuer.connectorBaseUrl, issuerCode, {
+      rollNumber: body.rollNumber,
+      name: body.name,
+      degree: body.degree,
+      branch: body.branch,
+      graduationYear: body.graduationYear,
+      cgpa: body.cgpa,
+    });
+  }
+
   @Post('publish')
   async publish(
     @Body() dto: PublishCredentialsDto,
@@ -142,10 +173,15 @@ export class CollegeCredentialsController {
         );
 
         if (!validationResult.matched) {
+          const reason = validationResult.reason === 'NOT_FOUND'
+            ? 'Student not found in ERP source. Seed mock ERP via Admin → Issuers → Seed ERP, or connect a real ERP.'
+            : validationResult.reason === 'ERP_EMPTY'
+              ? 'ERP store is empty — no student records loaded. Seed mock ERP first.'
+              : validationResult.reason;
           results.push({
             rollNumber: record.rollNumber,
-            status: validationResult.reason === 'NOT_FOUND' ? 'NOT_FOUND' : 'MISMATCH',
-            reason: validationResult.reason,
+            status: validationResult.reason === 'NOT_FOUND' || validationResult.reason === 'ERP_EMPTY' ? 'NOT_FOUND' : 'MISMATCH',
+            reason,
             diff: validationResult.diff,
           });
           continue;

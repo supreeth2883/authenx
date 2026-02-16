@@ -13,17 +13,25 @@ interface Step {
 }
 
 const INITIAL_STEPS: Step[] = [
+  // — Infrastructure —
   { id: 1, label: "Auth Session", description: "Verify JWT session is active", status: "idle" },
   { id: 2, label: "Cloud API Health", description: "Check API + database health", status: "idle" },
   { id: 3, label: "PostgreSQL", description: "Database responding with low latency", status: "idle" },
   { id: 4, label: "Registered Issuers", description: "Fetch issuer list from platform", status: "idle" },
   { id: 5, label: "Connector Ping", description: "Ping connector for issuer health", status: "idle" },
-  { id: 6, label: "Platform Stats", description: "Verify stats endpoint returns data", status: "idle" },
-  { id: 7, label: "Credential Explorer", description: "Check credentials exist in database", status: "idle" },
-  { id: 8, label: "Public Verify", description: "Verify credential via public endpoint (no auth)", status: "idle" },
-  { id: 9, label: "Audit Chain", description: "Verify audit log hash-chain integrity", status: "idle" },
-  { id: 10, label: "Analytics", description: "Check issuedPerDay + verification rate", status: "idle" },
-  { id: 11, label: "Audit Export", description: "Test CSV audit log export", status: "idle" },
+  // — Mock ERP —
+  { id: 6, label: "ERP Records", description: "List mock ERP student records for first issuer", status: "idle" },
+  { id: 7, label: "ERP Seed", description: "Seed deterministic QA test student into mock ERP", status: "idle" },
+  { id: 8, label: "ERP Lookup", description: "Lookup seeded QA student by roll number", status: "idle" },
+  // — Platform Data —
+  { id: 9, label: "Platform Stats", description: "Verify stats endpoint returns data", status: "idle" },
+  { id: 10, label: "Credential Explorer", description: "Check credentials exist in database", status: "idle" },
+  { id: 11, label: "Public Verify", description: "Verify credential via public endpoint (no auth)", status: "idle" },
+  { id: 12, label: "Credential Integrity", description: "Deep-verify hash + signature on a credential", status: "idle" },
+  // — Audit & Analytics —
+  { id: 13, label: "Audit Chain", description: "Verify audit log hash-chain integrity", status: "idle" },
+  { id: 14, label: "Analytics", description: "Check issuedPerDay + verification rate", status: "idle" },
+  { id: 15, label: "Audit Export", description: "Test CSV audit log export", status: "idle" },
 ];
 
 export default function QAPage() {
@@ -135,39 +143,116 @@ export default function QAPage() {
       updateStep(5, { status: "skip", detail: "No issuer to ping" });
     }
 
-    // 6. Platform Stats
+    // 6. ERP Records
     updateStep(6, { status: "running" });
+    if (firstIssuerCode) {
+      try {
+        const { res, ms } = await timedFetch(`admin/issuers/${firstIssuerCode}/erp/records`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const erp = await res.json();
+        const count = Array.isArray(erp) ? erp.length : erp.count ?? 0;
+        updateStep(6, {
+          status: count > 0 ? "pass" : "fail",
+          detail: count > 0 ? `${count} student record(s) in mock ERP` : "No ERP records — seed required",
+          durationMs: ms,
+        });
+      } catch (e: unknown) {
+        updateStep(6, { status: "fail", detail: (e as Error).message });
+      }
+    } else {
+      updateStep(6, { status: "skip", detail: "No issuer to query" });
+    }
+
+    // 7. ERP Seed — seed a deterministic QA test student
+    const QA_STUDENT = {
+      rollNumber: "QA-TEST-001",
+      name: "QA Test Student",
+      degree: "B.Tech",
+      branch: "Computer Science",
+      graduationYear: 2025,
+      cgpa: 8.5,
+    };
+    updateStep(7, { status: "running" });
+    if (firstIssuerCode) {
+      try {
+        const { res, ms } = await timedFetch(`admin/issuers/${firstIssuerCode}/erp/upsert-batch`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ records: [QA_STUDENT] }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const body = await res.json();
+        updateStep(7, {
+          status: "pass",
+          detail: `Seeded ${QA_STUDENT.rollNumber} — ${body.upserted ?? 1} upserted`,
+          durationMs: ms,
+        });
+      } catch (e: unknown) {
+        updateStep(7, { status: "fail", detail: (e as Error).message });
+      }
+    } else {
+      updateStep(7, { status: "skip", detail: "No issuer to seed" });
+    }
+
+    // 8. ERP Lookup — verify the seeded student can be retrieved
+    updateStep(8, { status: "running" });
+    if (firstIssuerCode) {
+      try {
+        // Lookup goes through the connector admin — proxy via admin/issuers/:code/erp/records and filter
+        const { res, ms } = await timedFetch(`admin/issuers/${firstIssuerCode}/erp/records`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const allRecords = await res.json();
+        const records = Array.isArray(allRecords) ? allRecords : allRecords.data ?? [];
+        const found = records.find((r: { rollNumber: string }) => r.rollNumber.toUpperCase() === QA_STUDENT.rollNumber.toUpperCase());
+        if (found) {
+          updateStep(8, {
+            status: "pass",
+            detail: `Found ${found.rollNumber}: ${found.name} (${found.degree}, ${found.branch})`,
+            durationMs: ms,
+          });
+        } else {
+          updateStep(8, { status: "fail", detail: `${QA_STUDENT.rollNumber} not found in ERP after seeding` });
+        }
+      } catch (e: unknown) {
+        updateStep(8, { status: "fail", detail: (e as Error).message });
+      }
+    } else {
+      updateStep(8, { status: "skip", detail: "No issuer" });
+    }
+
+    // 9. Platform Stats
+    updateStep(9, { status: "running" });
     try {
       const { res, ms } = await timedFetch("admin/stats");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const s = await res.json();
-      updateStep(6, {
+      updateStep(9, {
         status: "pass",
         detail: `${s.totalCredentials} credentials, ${s.totalVerifications} verifications`,
         durationMs: ms,
       });
     } catch (e: unknown) {
-      updateStep(6, { status: "fail", detail: (e as Error).message });
+      updateStep(9, { status: "fail", detail: (e as Error).message });
     }
 
-    // 7. Credential Explorer
-    updateStep(7, { status: "running" });
+    // 10. Credential Explorer
+    updateStep(10, { status: "running" });
     try {
       const { res, ms } = await timedFetch("admin/credentials?page=1&limit=1");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const creds = await res.json();
       if (creds.data?.length > 0) {
         firstCredentialId = creds.data[0].id;
-        updateStep(7, { status: "pass", detail: `${creds.total} total — first: ${firstCredentialId!.slice(0, 16)}…`, durationMs: ms });
+        updateStep(10, { status: "pass", detail: `${creds.total} total — first: ${firstCredentialId!.slice(0, 16)}…`, durationMs: ms });
       } else {
-        updateStep(7, { status: "fail", detail: "No credentials in database" });
+        updateStep(10, { status: "fail", detail: "No credentials in database" });
       }
     } catch (e: unknown) {
-      updateStep(7, { status: "fail", detail: (e as Error).message });
+      updateStep(10, { status: "fail", detail: (e as Error).message });
     }
 
-    // 8. Public Verify
-    updateStep(8, { status: "running" });
+    // 11. Public Verify
+    updateStep(11, { status: "running" });
     if (firstCredentialId) {
       try {
         const { res, ms } = await timedFetch(`public/verify/${firstCredentialId}`);
@@ -180,57 +265,84 @@ export default function QAPage() {
             : v.verification?.tamperDetected
               ? "TAMPERED"
               : "UNKNOWN";
-        updateStep(8, { status: "pass", detail: `${label} — hash:${v.verification?.hashValid ? "✓" : "✗"} sig:${v.verification?.signatureValid ? "✓" : "✗"}`, durationMs: ms });
+        updateStep(11, { status: "pass", detail: `${label} — hash:${v.verification?.hashValid ? "✓" : "✗"} sig:${v.verification?.signatureValid ? "✓" : "✗"}`, durationMs: ms });
       } catch (e: unknown) {
-        updateStep(8, { status: "fail", detail: (e as Error).message });
+        updateStep(11, { status: "fail", detail: (e as Error).message });
       }
     } else {
-      updateStep(8, { status: "skip", detail: "No credential to verify" });
+      updateStep(11, { status: "skip", detail: "No credential to verify" });
     }
 
-    // 9. Audit Chain
-    updateStep(9, { status: "running" });
+    // 12. Credential Integrity — deep-verify hash + signature independently
+    updateStep(12, { status: "running" });
+    if (firstCredentialId) {
+      try {
+        const { res, ms } = await timedFetch(`admin/credentials/${firstCredentialId}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const cred = await res.json();
+        const checks: string[] = [];
+        if (cred.hash) checks.push("hash:✓");
+        else checks.push("hash:✗");
+        if (cred.signature) checks.push("sig:✓");
+        else checks.push("sig:✗");
+        if (cred.status === "ISSUED" || cred.status === "REVOKED") checks.push(`status:${cred.status}`);
+        if (cred.issuerCode) checks.push(`issuer:${cred.issuerCode}`);
+        const allGood = cred.hash && cred.signature;
+        updateStep(12, {
+          status: allGood ? "pass" : "fail",
+          detail: checks.join(" | "),
+          durationMs: ms,
+        });
+      } catch (e: unknown) {
+        updateStep(12, { status: "fail", detail: (e as Error).message });
+      }
+    } else {
+      updateStep(12, { status: "skip", detail: "No credential to inspect" });
+    }
+
+    // 13. Audit Chain
+    updateStep(13, { status: "running" });
     try {
       const { res, ms } = await timedFetch("admin/audit-logs/verify-chain");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const chain = await res.json();
-      updateStep(9, {
+      updateStep(13, {
         status: chain.valid ? "pass" : "fail",
         detail: chain.valid ? `${chain.totalEntries} entries — chain intact` : `Broken at entry ${chain.brokenAt}`,
         durationMs: ms,
       });
     } catch (e: unknown) {
-      updateStep(9, { status: "fail", detail: (e as Error).message });
+      updateStep(13, { status: "fail", detail: (e as Error).message });
     }
 
-    // 10. Analytics
-    updateStep(10, { status: "running" });
+    // 14. Analytics
+    updateStep(14, { status: "running" });
     try {
       const { res, ms } = await timedFetch("admin/analytics");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const a = await res.json();
-      updateStep(10, {
+      updateStep(14, {
         status: "pass",
         detail: `${a.issuedPerDay?.length ?? 0} days tracked, ${Math.round(a.verificationRate ?? 0)}% success rate`,
         durationMs: ms,
       });
     } catch (e: unknown) {
-      updateStep(10, { status: "fail", detail: (e as Error).message });
+      updateStep(14, { status: "fail", detail: (e as Error).message });
     }
 
-    // 11. Audit Export
-    updateStep(11, { status: "running" });
+    // 15. Audit Export
+    updateStep(15, { status: "running" });
     try {
       const { res, ms } = await timedFetch("admin/audit-logs/export");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const exp = await res.json();
-      updateStep(11, {
+      updateStep(15, {
         status: "pass",
         detail: `${exp.count} entries exported (${exp.filename})`,
         durationMs: ms,
       });
     } catch (e: unknown) {
-      updateStep(11, { status: "fail", detail: (e as Error).message });
+      updateStep(15, { status: "fail", detail: (e as Error).message });
     }
 
     setFinishedAt(Date.now());
@@ -276,7 +388,7 @@ export default function QAPage() {
             <div>
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white">System Health Checklist</h2>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                Runs 11 sequential checks against all platform endpoints.
+                Runs 15 sequential checks against all platform endpoints.
               </p>
             </div>
             <button
@@ -328,9 +440,19 @@ export default function QAPage() {
         </div>
 
         {/* Steps */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden">
-          {steps.map((step) => (
-            <div key={step.id} className="px-6 py-4 flex items-center gap-4">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
+          {steps.map((step, idx) => {
+            // Section headers
+            const sectionHeaders: Record<number, string> = { 1: "Infrastructure", 6: "Mock ERP", 9: "Platform Data", 13: "Audit & Analytics" };
+            const sectionLabel = sectionHeaders[step.id];
+            return (
+              <div key={step.id}>
+                {sectionLabel && (
+                  <div className={`px-6 py-2 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-100 dark:border-slate-800 ${idx > 0 ? "border-t" : ""}`}>
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{sectionLabel}</span>
+                  </div>
+                )}
+                <div className={`px-6 py-4 flex items-center gap-4 ${idx < steps.length - 1 ? "border-b border-slate-100 dark:border-slate-800" : ""}`}>
               {/* Status icon */}
               <div className="w-8 h-8 flex-shrink-0">
                 {step.status === "idle" && (
@@ -388,8 +510,10 @@ export default function QAPage() {
               {step.durationMs !== undefined && (
                 <span className="text-xs font-mono text-slate-400 flex-shrink-0">{step.durationMs}ms</span>
               )}
-            </div>
-          ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* Footer */}
