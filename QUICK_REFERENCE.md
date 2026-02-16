@@ -100,6 +100,9 @@ docker-compose -f docker-compose.prod.yml ps
 | GET | /admin/stats | ADMIN | Dashboard stats (issuer-scoped) |
 | GET | /admin/credentials | ADMIN | Credential explorer (issuer-scoped) |
 | GET | /admin/analytics | ADMIN | Issuance analytics (issuer-scoped) |
+| GET | /admin/issuers/:code/erp/status | ADMIN | Mock ERP admin mode status |
+| GET | /admin/issuers/:code/erp/records | ADMIN | List mock ERP records (QA only) |
+| POST | /admin/issuers/:code/erp/upsert-batch | ADMIN | Seed mock ERP records (QA only) |
 
 ---
 

@@ -50,6 +50,8 @@ services:
         value: info
       - key: CONNECTOR_URL
         value: https://authenx-connector.onrender.com
+      - key: CONNECTOR_ADMIN_KEY
+        generateValue: true
 
   # ── Connector (NestJS) ──────────────────────────────────────────
   - type: web
@@ -67,6 +69,10 @@ services:
         value: https://authenx-cloud-api.onrender.com
       - key: ISSUER_CODE
         value: CVR
+      - key: MOCK_ERP_ADMIN_MODE
+        value: disabled
+      - key: CONNECTOR_ADMIN_KEY
+        sync: false  # Must match cloud-api CONNECTOR_ADMIN_KEY — set manually
       - key: LOG_LEVEL
         value: info
 

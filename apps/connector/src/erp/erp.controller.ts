@@ -20,19 +20,32 @@ interface UpsertStudentBody {
   cgpa: number;
 }
 
+/** Parse MOCK_ERP_ADMIN_MODE — safe default is "disabled" */
+function parseErpAdminMode(): 'enabled' | 'disabled' {
+  const raw = (process.env.MOCK_ERP_ADMIN_MODE ?? '').trim().toLowerCase();
+  return raw === 'enabled' ? 'enabled' : 'disabled';
+}
+
 @Controller('erp')
 export class ErpController {
   private readonly logger = new Logger(ErpController.name);
   private readonly adminKey = process.env.CONNECTOR_ADMIN_KEY || '';
-  private readonly mockErpEnabled = process.env.MOCK_ERP_ADMIN !== 'disabled';
+  private readonly erpAdminMode = parseErpAdminMode();
 
-  constructor(private readonly erpService: ErpService) {}
+  constructor(private readonly erpService: ErpService) {
+    this.logger.log(`Mock ERP admin mode: ${this.erpAdminMode}`);
+  }
 
   /* ── Guard helper ──────────────────────────────────────────── */
 
+  /**
+   * When MOCK_ERP_ADMIN_MODE=disabled (or unset), admin endpoints return 404
+   * so attackers cannot discover them. When enabled, require CONNECTOR_ADMIN_KEY.
+   */
   private assertAdmin(authHeader?: string): void {
-    if (!this.mockErpEnabled) {
-      throw new HttpException('Mock ERP admin is disabled in this environment', HttpStatus.FORBIDDEN);
+    if (this.erpAdminMode !== 'enabled') {
+      // Return 404 — endpoint does not exist in production
+      throw new HttpException('Not Found', HttpStatus.NOT_FOUND);
     }
     if (!this.adminKey) {
       throw new HttpException('CONNECTOR_ADMIN_KEY is not configured', HttpStatus.INTERNAL_SERVER_ERROR);
@@ -41,6 +54,13 @@ export class ErpController {
     if (token !== this.adminKey) {
       throw new HttpException('Invalid admin key', HttpStatus.UNAUTHORIZED);
     }
+  }
+
+  /* ── Status endpoint (no admin key needed — returns mode only) ── */
+
+  @Get('admin/status')
+  getAdminStatus() {
+    return { mockErpAdminMode: this.erpAdminMode };
   }
 
   /* ── Existing endpoints (called by cloud-api) ──────────────── */

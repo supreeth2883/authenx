@@ -40,6 +40,7 @@ export default function QAPage() {
   const [running, setRunning] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [finishedAt, setFinishedAt] = useState<number | null>(null);
+  const [erpMode, setErpMode] = useState<"enabled" | "disabled" | "unknown" | "loading">("loading");
 
   const updateStep = useCallback((id: number, patch: Partial<Step>) => {
     setSteps((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
@@ -126,6 +127,7 @@ export default function QAPage() {
 
     // 5. Connector Ping
     updateStep(5, { status: "running" });
+    let erpAdminMode: "enabled" | "disabled" | "unknown" = "unknown";
     if (firstIssuerCode) {
       try {
         const { res, ms } = await timedFetch(`admin/issuers/${firstIssuerCode}/ping`, { method: "POST" });
@@ -136,16 +138,35 @@ export default function QAPage() {
           detail: ping.ok ? `${firstIssuerCode} — ${ping.latencyMs ?? ms}ms` : (ping.message || "Ping failed"),
           durationMs: ms,
         });
+
+        // Fetch ERP admin mode status (non-blocking for step 5)
+        try {
+          const statusRes = await fetch(`/api/proxy/admin/issuers/${firstIssuerCode}/erp/status`);
+          if (statusRes.ok) {
+            const statusData = await statusRes.json();
+            erpAdminMode = statusData.mockErpAdminMode === "enabled" ? "enabled" : "disabled";
+          }
+        } catch {
+          erpAdminMode = "unknown";
+        }
+        setErpMode(erpAdminMode);
       } catch (e: unknown) {
         updateStep(5, { status: "fail", detail: (e as Error).message });
+        setErpMode("unknown");
       }
     } else {
       updateStep(5, { status: "skip", detail: "No issuer to ping" });
+      setErpMode("unknown");
     }
+
+    // 6–8: Mock ERP steps — skip when admin mode is disabled
+    const erpDisabled = erpAdminMode !== "enabled";
 
     // 6. ERP Records
     updateStep(6, { status: "running" });
-    if (firstIssuerCode) {
+    if (erpDisabled) {
+      updateStep(6, { status: "skip", detail: "MOCK_ERP_ADMIN_MODE=disabled — set to 'enabled' on connector for QA" });
+    } else if (firstIssuerCode) {
       try {
         const { res, ms } = await timedFetch(`admin/issuers/${firstIssuerCode}/erp/records`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -173,7 +194,9 @@ export default function QAPage() {
       cgpa: 8.5,
     };
     updateStep(7, { status: "running" });
-    if (firstIssuerCode) {
+    if (erpDisabled) {
+      updateStep(7, { status: "skip", detail: "MOCK_ERP_ADMIN_MODE=disabled — set to 'enabled' on connector for QA" });
+    } else if (firstIssuerCode) {
       try {
         const { res, ms } = await timedFetch(`admin/issuers/${firstIssuerCode}/erp/upsert-batch`, {
           method: "POST",
@@ -196,7 +219,9 @@ export default function QAPage() {
 
     // 8. ERP Lookup — verify the seeded student can be retrieved
     updateStep(8, { status: "running" });
-    if (firstIssuerCode) {
+    if (erpDisabled) {
+      updateStep(8, { status: "skip", detail: "MOCK_ERP_ADMIN_MODE=disabled — set to 'enabled' on connector for QA" });
+    } else if (firstIssuerCode) {
       try {
         // Lookup goes through the connector admin — proxy via admin/issuers/:code/erp/records and filter
         const { res, ms } = await timedFetch(`admin/issuers/${firstIssuerCode}/erp/records`);
@@ -381,6 +406,38 @@ export default function QAPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+        {/* Mock ERP Mode Badge */}
+        <div className={`rounded-xl border px-4 py-3 flex items-center gap-3 text-sm ${
+          erpMode === "enabled"
+            ? "bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300"
+            : erpMode === "disabled"
+              ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300"
+              : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+        }`}>
+          {erpMode === "enabled" ? (
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 3.104v5.714a2.25 2.25 0 0 1-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 0 1 4.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0 1 12 15a9.065 9.065 0 0 0-6.23.693L5 14.5m14.8.8 1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0 1 12 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
+            </svg>
+          ) : (
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+            </svg>
+          )}
+          <div className="flex-1">
+            <span className="font-semibold">Mock ERP: </span>
+            {erpMode === "enabled" && "Enabled (QA Mode)"}
+            {erpMode === "disabled" && "Disabled (Production Safe)"}
+            {erpMode === "loading" && "Checking..."}
+            {erpMode === "unknown" && "Unknown — run checks to detect"}
+          </div>
+          {erpMode === "enabled" && (
+            <span className="text-xs font-mono bg-amber-100 dark:bg-amber-900/50 px-2 py-0.5 rounded">MOCK_ERP_ADMIN_MODE=enabled</span>
+          )}
+          {erpMode === "disabled" && (
+            <span className="text-xs font-mono bg-emerald-100 dark:bg-emerald-900/50 px-2 py-0.5 rounded">MOCK_ERP_ADMIN_MODE=disabled</span>
+          )}
+        </div>
+
         {/* Run button + summary */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
           <div className="flex items-center justify-between mb-4">
@@ -447,8 +504,17 @@ export default function QAPage() {
             return (
               <div key={step.id}>
                 {sectionLabel && (
-                  <div className={`px-6 py-2 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-100 dark:border-slate-800 ${idx > 0 ? "border-t" : ""}`}>
+                  <div className={`px-6 py-2 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between ${idx > 0 ? "border-t" : ""}`}>
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 dark:text-slate-500">{sectionLabel}</span>
+                    {sectionLabel === "Mock ERP" && erpMode !== "loading" && (
+                      <span className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                        erpMode === "enabled"
+                          ? "bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400"
+                          : "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400"
+                      }`}>
+                        {erpMode === "enabled" ? "QA Mode" : "Disabled"}
+                      </span>
+                    )}
                   </div>
                 )}
                 <div className={`px-6 py-4 flex items-center gap-4 ${idx < steps.length - 1 ? "border-b border-slate-100 dark:border-slate-800" : ""}`}>
@@ -518,7 +584,7 @@ export default function QAPage() {
         {/* Footer */}
         <div className="text-center">
           <p className="text-xs text-slate-400 dark:text-slate-500">
-            AuthenX QA — All checks run as SUPER_ADMIN via the proxy. Public verify is disabled — verification requires employer login.
+            AuthenX QA — All checks run as SUPER_ADMIN. Mock ERP admin is controlled by MOCK_ERP_ADMIN_MODE on connector. Public verify is disabled.
           </p>
         </div>
       </main>

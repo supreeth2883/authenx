@@ -315,6 +315,8 @@ REDIS_URL=redis://:password@host:6379
 JWT_SECRET=<secure_32+_char_key>
 JWT_EXPIRATION=86400
 CORS_ORIGIN=https://yourdomain.com
+CONNECTOR_URL=https://your-connector.onrender.com
+CONNECTOR_ADMIN_KEY=<shared_secret_with_connector>
 LOG_LEVEL=info
 ```
 
@@ -323,6 +325,8 @@ LOG_LEVEL=info
 NODE_ENV=production
 PORT=3002
 CLOUD_API_URL=http://cloud-api:3001
+CONNECTOR_ADMIN_KEY=<same_shared_secret>
+MOCK_ERP_ADMIN_MODE=disabled        # "disabled" (production) or "enabled" (QA/staging)
 LOG_LEVEL=info
 ```
 
@@ -340,9 +344,40 @@ NEXT_PUBLIC_API_URL=https://api.yourdomain.com
 - [ ] All passwords changed from defaults
 - [ ] JWT_SECRET is secure and random (32+ chars)
 - [ ] CORS_ORIGIN set to exact domains only
+- [ ] CONNECTOR_ADMIN_KEY set on both cloud-api and connector (matching value)
+- [ ] MOCK_ERP_ADMIN_MODE=disabled on production connector
 - [ ] SSL/TLS certificates installed
 - [ ] Database backups automated
 - [ ] Logs aggregated and archived
+
+---
+
+## QA Mode (Mock ERP Seeding)
+
+Mock ERP admin endpoints are controlled by `MOCK_ERP_ADMIN_MODE` on the connector.
+
+### Production (default)
+```
+MOCK_ERP_ADMIN_MODE=disabled   # or unset — same effect
+```
+- All mock ERP admin endpoints return 404 (invisible to attackers)
+- QA page shows "Mock ERP: Disabled (Production Safe)" badge
+- ERP Seed / Records / Lookup steps auto-skip
+
+### QA / Staging / Local
+```
+MOCK_ERP_ADMIN_MODE=enabled
+CONNECTOR_ADMIN_KEY=your-secret-key
+```
+- Mock ERP admin endpoints are accessible (with admin key)
+- QA page shows "Mock ERP: Enabled (QA)" badge
+- ERP Seed inserts deterministic test student `QA-TEST-001`
+
+### Steps to enable QA seeding:
+1. Set `MOCK_ERP_ADMIN_MODE=enabled` on the connector service
+2. Set `CONNECTOR_ADMIN_KEY` to the same value on both connector and cloud-api
+3. Restart the connector
+4. Go to `/admin/qa` and run all checks — ERP steps will execute
 - [ ] Error tracking enabled (Sentry, etc.)
 - [ ] Monitoring and alerts configured
 - [ ] Rate limiting tested
@@ -494,27 +529,32 @@ curl -s -X PATCH http://localhost:3001/admin/users/<USER_ID> \
 
 AuthenX includes a built-in platform QA page accessible at `/admin/qa` (requires SUPER_ADMIN login).
 
-### What it tests (11 sequential checks):
+### What it tests (15 sequential checks):
 
-| # | Check | Endpoint |
-|---|-------|----------|
-| 1 | Auth Session | `GET /auth/me` |
-| 2 | Cloud API Health | `GET /admin/health` |
-| 3 | PostgreSQL | Extracted from health response |
-| 4 | Registered Issuers | `GET /admin/issuers` |
-| 5 | Connector Ping | `POST /admin/issuers/:code/ping` |
-| 6 | Platform Stats | `GET /admin/stats` |
-| 7 | Credential Explorer | `GET /admin/credentials` |
-| 8 | Public Verify Blocked | Confirm `/public/verify/:id` returns 404 |
-| 9 | Audit Chain Integrity | `GET /admin/audit-logs/verify-chain` |
-| 10 | Analytics | `GET /admin/analytics` |
-| 11 | Audit Export | `GET /admin/audit-logs/export` |
+| # | Check | Endpoint | Notes |
+|---|-------|----------|-------|
+| 1 | Auth Session | `GET /auth/me` | |
+| 2 | Cloud API Health | `GET /admin/health` | |
+| 3 | PostgreSQL | Extracted from health response | |
+| 4 | Registered Issuers | `GET /admin/issuers` | |
+| 5 | Connector Ping | `POST /admin/issuers/:code/ping` | Also fetches ERP mode |
+| 6 | ERP Records | `GET /admin/issuers/:code/erp/records` | Skipped if ERP disabled |
+| 7 | ERP Seed | `POST /admin/issuers/:code/erp/upsert-batch` | Skipped if ERP disabled |
+| 8 | ERP Lookup | `GET /admin/issuers/:code/erp/records` (filter) | Skipped if ERP disabled |
+| 9 | Platform Stats | `GET /admin/stats` | |
+| 10 | Credential Explorer | `GET /admin/credentials` | |
+| 11 | Public Verify Blocked | `GET /public/verify/:id` | Expects 404 |
+| 12 | Credential Integrity | `GET /admin/credentials/:id` | Hash + signature check |
+| 13 | Audit Chain | `GET /admin/audit-logs/verify-chain` | |
+| 14 | Analytics | `GET /admin/analytics` | |
+| 15 | Audit Export | `GET /admin/audit-logs/export` | |
 
 ### Running QA after deployment:
 1. Log in as SUPER_ADMIN at `/login`
 2. Navigate to the **QA →** link in the admin dashboard header
-3. Click **Run All Checks** — all 11 steps execute sequentially
+3. Click **Run All Checks** — all 15 steps execute sequentially
 4. Green checkmarks = healthy, red X = needs attention
+5. Mock ERP steps (6-8) auto-skip when `MOCK_ERP_ADMIN_MODE=disabled`
 
 ### System Status Widget
 

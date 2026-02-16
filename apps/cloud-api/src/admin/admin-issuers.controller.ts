@@ -199,6 +199,32 @@ export class AdminIssuersController {
   }
 
   /**
+   * GET /admin/issuers/:issuerCode/erp/status — check mock ERP admin mode
+   * Proxies to connector GET /erp/admin/status (no admin key needed — returns mode only)
+   */
+  @Get(':issuerCode/erp/status')
+  async getErpAdminStatus(@Param('issuerCode') issuerCode: string) {
+    const issuer = await this.prisma.issuer.findUnique({ where: { issuerCode } });
+    if (!issuer) {
+      throw new HttpException(`Issuer "${issuerCode}" not found`, HttpStatus.NOT_FOUND);
+    }
+
+    try {
+      const res = await fetch(`${issuer.connectorBaseUrl}/erp/admin/status`, {
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!res.ok) {
+        throw new Error(`Connector returned HTTP ${res.status}`);
+      }
+      return await res.json();
+    } catch (err) {
+      // If connector is unreachable, report as disabled for safety
+      this.logger.warn(`ERP status check failed for ${issuerCode}: ${(err as Error).message}`);
+      return { mockErpAdminMode: 'unknown', error: (err as Error).message };
+    }
+  }
+
+  /**
    * GET /admin/issuers/:issuerCode/erp/records — list mock ERP records via connector
    * Proxies to connector GET /erp/admin/records (requires CONNECTOR_ADMIN_KEY)
    */
