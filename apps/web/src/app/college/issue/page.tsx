@@ -160,7 +160,7 @@ export default function IssueCredentialsPage() {
   /* ── RBAC gate ──────────────────────────────────────────── */
   if (!authChecked) return <Spinner />;
 
-  if (currentRole !== "COLLEGE_ADMIN" && currentRole !== "SUPER_ADMIN") {
+  if (currentRole !== "COLLEGE_ADMIN") {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50 dark:from-slate-950 dark:to-slate-900">
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow p-8 text-center max-w-sm">
@@ -171,7 +171,7 @@ export default function IssueCredentialsPage() {
           </div>
           <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Not Authorized</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Only College Admins can issue credentials.</p>
-          <button onClick={() => router.push("/admin")} className="text-sm font-medium text-indigo-600 hover:text-indigo-500">← Back to Dashboard</button>
+          <button onClick={() => router.push("/college")} className="text-sm font-medium text-indigo-600 hover:text-indigo-500">← Back to Dashboard</button>
         </div>
       </div>
     );
@@ -344,7 +344,7 @@ export default function IssueCredentialsPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <a href="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">← Dashboard</a>
+            <a href="/college" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">← Dashboard</a>
             <button onClick={handleLogout} className="text-sm font-medium text-red-500 hover:text-red-400 bg-red-50 dark:bg-red-950/50 px-3 py-1 rounded-full transition-colors cursor-pointer">Sign out</button>
           </div>
         </div>

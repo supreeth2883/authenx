@@ -356,7 +356,57 @@ NEXT_PUBLIC_API_URL=https://api.yourdomain.com
 
 SUPER_ADMIN users can create and manage other users directly from the web UI.
 
-### How to use
+### Three-Portal Architecture
+
+AuthenX enforces strict role-based access control across three isolated portals:
+
+| Portal | URL | Allowed Role | Features |
+|--------|-----|-------------|----------|
+| **Admin** | `/admin/*` | SUPER_ADMIN only | Dashboard, Users, Audit, Credential Explorer |
+| **College** | `/college/*` | COLLEGE_ADMIN only | Dashboard, Issue Credentials, List/Revoke |
+| **Employer** | `/employer/*` | EMPLOYER only | Verify credentials (VERIFIED / REVOKED / TAMPERED) |
+
+RBAC is enforced at **both** layers:
+- **UI Middleware** — redirects wrong roles before page renders
+- **API Guards** — NestJS `@Roles()` decorator returns 403 on every endpoint
+
+### Default Seed Logins
+
+| Email | Password | Role | Portal |
+|-------|----------|------|--------|
+| `admin@authenx.io` | `Admin@2026` | SUPER_ADMIN | `/admin` |
+| `college@cvr.edu` | `College@2026` | COLLEGE_ADMIN (CVR) | `/college` |
+| `hr@acme.com` | `Employer@2026` | EMPLOYER | `/employer` |
+
+### Demo Walkthrough
+
+**1. SUPER_ADMIN — Monitor & Manage**
+1. Login as `admin@authenx.io` → lands on `/admin`
+2. View system stats, credential explorer, analytics charts
+3. Click **Manage Users →** to create/edit/deactivate users
+4. Click **Audit Trail →** to view hash-chained audit logs, export CSV
+
+**2. COLLEGE_ADMIN — Issue & Revoke**
+1. Login as `college@cvr.edu` → lands on `/college`
+2. Click **Issue Credentials →** to open the credential manager
+3. Add records manually or upload CSV (format: `rollNumber,name,degree,branch,graduationYear,cgpa`)
+4. Click **Publish Results** — credentials are auto-issued with Ed25519 signatures
+5. Switch to **Issued Credentials** tab → copy IDs, share QR codes
+6. Click the revoke icon on any credential → enter reason → confirm
+
+**3. EMPLOYER — Verify**
+1. Login as `hr@acme.com` → lands on `/employer`
+2. Paste a credential ID → click **Verify Credential**
+3. See three possible results:
+   - **VERIFIED** (green) — hash + signature valid, credential active
+   - **REVOKED** (amber) — credential was revoked, shows reason + date
+   - **TAMPERED** (red) — hash mismatch, data integrity compromised
+
+### Cold Start Note
+
+On Render free tier, services spin down after 15 min of inactivity. First request may take 10-15 seconds. The employer portal shows a "Waking server…" indicator automatically.
+
+### How to use User Management
 
 1. **Login** as the Super Admin at `/login`:
    - Email: `admin@authenx.io` / Password: `Admin@2026` (default seed)
@@ -365,31 +415,55 @@ SUPER_ADMIN users can create and manage other users directly from the web UI.
 4. **Edit a user** — click "Edit" on any row to change role, issuerCode, status, or reset password.
 5. **Deactivate a user** — click "Deactivate" to soft-disable an account (no hard delete).
 
-### Role-Based Access Control
+### Strict Role Isolation
 
-| Role | Dashboard | User Management | Employer Portal |
-|------|-----------|-----------------|-----------------|
-| SUPER_ADMIN | ✅ | ✅ | ✅ |
-| COLLEGE_ADMIN | ✅ | ❌ (403) | ✅ |
-| EMPLOYER | ❌ | ❌ (403) | ✅ |
-
-### Verifying RBAC
-
-1. Create a user with role `COLLEGE_ADMIN` via the UI.
-2. Logout, then login as the new college admin.
-3. Navigate to `/admin/users` — you should see a "Not Authorized" message.
-4. The API returns HTTP 403 for any `/admin/users` endpoint for non-SUPER_ADMIN roles.
+| Action | SUPER_ADMIN | COLLEGE_ADMIN | EMPLOYER |
+|--------|:-----------:|:------------:|:--------:|
+| `/admin` dashboard | ✅ | 🚫 redirect | 🚫 redirect |
+| User CRUD | ✅ | 🚫 403 | 🚫 403 |
+| Audit logs | ✅ | 🚫 403 | 🚫 403 |
+| `/college` dashboard | 🚫 redirect | ✅ | 🚫 redirect |
+| Issue credentials | 🚫 403 | ✅ | 🚫 403 |
+| Revoke credentials | 🚫 403 | ✅ | 🚫 403 |
+| `/employer` verify | 🚫 redirect | 🚫 redirect | ✅ |
+| Public `/verify/:id` | ✅ (no login) | ✅ (no login) | ✅ (no login) |
 
 ### API Endpoints (via proxy)
 
 All frontend requests go through `/api/proxy/...` (never directly to cloud-api):
 
 ```
+# Admin (SUPER_ADMIN only)
+GET    /api/proxy/admin/stats
+GET    /api/proxy/admin/credentials?page=&limit=&search=
+GET    /api/proxy/admin/analytics
+GET    /api/proxy/admin/audit-logs?page=&limit=&action=
+GET    /api/proxy/admin/audit-logs/export
 GET    /api/proxy/admin/users?role=&q=&page=&limit=
 POST   /api/proxy/admin/users          { email, password, role, issuerCode? }
 PATCH  /api/proxy/admin/users/:id      { role?, issuerCode?, active?, password? }
-DELETE /api/proxy/admin/users/:id       (deactivates user)
+DELETE /api/proxy/admin/users/:id      (deactivates user)
+
+# College (COLLEGE_ADMIN only)
+GET    /api/proxy/college/credentials?page=&limit=&search=
+POST   /api/proxy/college/credentials/publish  { issuerCode, records: [...] }
+PATCH  /api/proxy/college/credentials/:id/revoke  { reason }
+
+# Employer (EMPLOYER only)
+GET    /api/proxy/employer/verify/:id?orgName=
+
+# Public (no auth required)
+GET    /api/proxy/public/verify/:id
 ```
+
+### Troubleshooting
+
+| Issue | Cause | Fix |
+|-------|-------|-----|
+| 403 on any endpoint | Wrong role for that portal | Login with correct role |
+| 409 on publish | Credential already issued | Check "ALREADY_ISSUED" status in results |
+| Slow first request | Render cold start (free tier) | Wait 10-15s, server wakes automatically |
+| Redirect loop | Cookie from wrong role | Clear cookies, login again |
 
 ### curl examples (direct to cloud-api, for debugging)
 
@@ -427,4 +501,4 @@ curl -s -X PATCH http://localhost:3001/admin/users/<USER_ID> \
 
 ---
 
-Last Updated: February 15, 2026
+Last Updated: February 16, 2026

@@ -79,6 +79,7 @@ export class LoggerService implements NestLoggerService {
     userId?: string;
     role?: string;
     userAgent?: string;
+    requestId?: string;
   }): void {
     this.logger.info('HTTP Request', {
       context: 'HTTP',

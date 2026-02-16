@@ -129,24 +129,14 @@ export default function AdminPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {(userRole === "COLLEGE_ADMIN" || userRole === "SUPER_ADMIN") && (
-              <a href="/college/issue" className="text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-300 transition-colors">
-                Issue Credentials →
-              </a>
-            )}
-            {userRole === "SUPER_ADMIN" && (
-              <a href="/admin/users" className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors">
-                Manage Users →
-              </a>
-            )}
+            <a href="/admin/users" className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors">
+              Manage Users →
+            </a>
             <a href="/admin/audit" className="text-sm font-medium text-amber-600 dark:text-amber-400 hover:text-amber-500 dark:hover:text-amber-300 transition-colors">
               Audit Trail →
             </a>
-            <a href="/employer" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
-              Employer Portal →
-            </a>
             <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-3 py-1 rounded-full">
-              Admin
+              Super Admin
             </span>
             <button
               onClick={handleLogout}

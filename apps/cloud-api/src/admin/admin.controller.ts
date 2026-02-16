@@ -10,7 +10,7 @@ import type { Request } from 'express';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.SUPER_ADMIN, UserRole.COLLEGE_ADMIN)
+@Roles(UserRole.SUPER_ADMIN)
 export class AdminController {
   private readonly logger = new Logger(AdminController.name);
 
@@ -187,7 +187,7 @@ export class AdminController {
     const where: Prisma.AuditLogWhereInput = {};
     const conditions: Prisma.AuditLogWhereInput[] = [];
 
-    if (action?.trim() && (action === 'CREDENTIAL_ISSUED' || action === 'CREDENTIAL_VERIFIED')) {
+    if (action?.trim() && ['CREDENTIAL_ISSUED', 'CREDENTIAL_VERIFIED', 'CREDENTIAL_REVOKED'].includes(action)) {
       conditions.push({ action: action as any });
     }
 
@@ -262,7 +262,7 @@ export class AdminController {
     const where: Prisma.AuditLogWhereInput = {};
     const conditions: Prisma.AuditLogWhereInput[] = [];
 
-    if (action?.trim() && (action === 'CREDENTIAL_ISSUED' || action === 'CREDENTIAL_VERIFIED')) {
+    if (action?.trim() && ['CREDENTIAL_ISSUED', 'CREDENTIAL_VERIFIED', 'CREDENTIAL_REVOKED'].includes(action)) {
       conditions.push({ action: action as any });
     }
 

@@ -36,17 +36,29 @@ export function middleware(request: NextRequest) {
       return NextResponse.redirect(loginUrl);
     }
 
-    // Role-based route protection
-    if (pathname.startsWith("/admin") && role !== "COLLEGE_ADMIN" && role !== "SUPER_ADMIN") {
-      return NextResponse.redirect(new URL("/employer", request.url));
+    // STRICT role-based route protection — each portal is isolated
+    // /admin/* → SUPER_ADMIN only
+    if (pathname.startsWith("/admin")) {
+      if (role !== "SUPER_ADMIN") {
+        const dest = role === "COLLEGE_ADMIN" ? "/college" : role === "EMPLOYER" ? "/employer" : "/login";
+        return NextResponse.redirect(new URL(dest, request.url));
+      }
     }
 
-    if (pathname.startsWith("/college") && role !== "COLLEGE_ADMIN" && role !== "SUPER_ADMIN") {
-      return NextResponse.redirect(new URL("/employer", request.url));
+    // /college/* → COLLEGE_ADMIN only
+    if (pathname.startsWith("/college")) {
+      if (role !== "COLLEGE_ADMIN") {
+        const dest = role === "SUPER_ADMIN" ? "/admin" : role === "EMPLOYER" ? "/employer" : "/login";
+        return NextResponse.redirect(new URL(dest, request.url));
+      }
     }
 
-    if (pathname.startsWith("/employer") && role !== "EMPLOYER" && role !== "COLLEGE_ADMIN" && role !== "SUPER_ADMIN") {
-      return NextResponse.redirect(new URL("/login", request.url));
+    // /employer/* → EMPLOYER only
+    if (pathname.startsWith("/employer")) {
+      if (role !== "EMPLOYER") {
+        const dest = role === "SUPER_ADMIN" ? "/admin" : role === "COLLEGE_ADMIN" ? "/college" : "/login";
+        return NextResponse.redirect(new URL(dest, request.url));
+      }
     }
   } catch {
     // Invalid token — redirect to login

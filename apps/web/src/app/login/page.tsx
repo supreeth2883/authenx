@@ -53,7 +53,7 @@ function LoginPageInner() {
       } else {
         switch (data.user.role) {
           case "COLLEGE_ADMIN":
-            router.push("/admin");
+            router.push("/college");
             break;
           case "EMPLOYER":
             router.push("/employer");
@@ -62,7 +62,7 @@ function LoginPageInner() {
             router.push("/admin");
             break;
           default:
-            router.push("/");
+            router.push("/login");
         }
       }
     } catch (err: any) {

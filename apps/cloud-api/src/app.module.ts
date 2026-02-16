@@ -15,6 +15,7 @@ import { WellKnownModule } from './well-known/well-known.module.js';
 import { ConfigModule } from './config/config.module.js';
 import { LoggerModule } from './logger/logger.module.js';
 import { UsersModule } from './users/users.module.js';
+import { EmployerModule } from './employer/employer.module.js';
 import { HttpLoggerMiddleware } from './middleware/http-logger.middleware.js';
 
 @Module({
@@ -41,6 +42,7 @@ import { HttpLoggerMiddleware } from './middleware/http-logger.middleware.js';
     CredentialsModule,
     AdminModule,
     UsersModule,
+    EmployerModule,
     WellKnownModule,
   ],
   controllers: [AppController],

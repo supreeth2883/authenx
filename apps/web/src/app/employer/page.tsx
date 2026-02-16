@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
@@ -14,24 +14,18 @@ interface VerificationResult {
   graduationYear: number;
   cgpa: number;
   issuedAt: string;
+  status?: "ISSUED" | "REVOKED";
+  revokedAt?: string | null;
+  revokedReason?: string | null;
   verification: {
     hashValid: boolean;
     signatureValid: boolean;
     verified: boolean;
     tamperDetected: boolean;
+    revoked?: boolean;
     verifiedAt: string;
     orgName: string;
   };
-}
-
-interface LogEntry {
-  id: string;
-  credentialId: string;
-  orgName: string;
-  result: boolean;
-  hashValid: boolean;
-  signatureValid: boolean;
-  createdAt: string;
 }
 
 export default function EmployerPage() {
@@ -61,14 +55,12 @@ function EmployerPageInner() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<VerificationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
-  const [logsLoading, setLogsLoading] = useState(true);
+  const [waking, setWaking] = useState(false);
 
   // Auto-fill credentialId from query param (e.g. QR code link)
   useEffect(() => {
     let qpId = searchParams.get("credentialId");
     if (qpId && !autoVerified.current) {
-      // Strip QR payload prefix if present
       if (qpId.startsWith("authenx:")) {
         qpId = qpId.slice(8);
       }
@@ -83,30 +75,11 @@ function EmployerPageInner() {
     router.push("/login");
   };
 
-  const fetchLogs = useCallback(async () => {
-    try {
-      const res = await fetch("/api/proxy/admin/logs?limit=10");
-      if (res.ok) {
-        const data = await res.json();
-        setLogs(data);
-      }
-    } catch {
-      // silent fail on log fetch
-    } finally {
-      setLogsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchLogs();
-  }, [fetchLogs]);
-
   // Auto-verify when credentialId is set from query param
   useEffect(() => {
     const qpId = searchParams.get("credentialId");
     if (qpId && credentialId === qpId && !autoVerified.current && !loading && !result) {
       autoVerified.current = true;
-      // Simulate form submit
       const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
       handleVerify(fakeEvent);
     }
@@ -120,423 +93,276 @@ function EmployerPageInner() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setWaking(false);
+
+    // Cold-start: if request takes >3s, show waking message
+    const wakingTimer = setTimeout(() => setWaking(true), 3000);
 
     try {
       const params = new URLSearchParams();
       if (orgName.trim()) params.set("orgName", orgName.trim());
 
       const res = await fetch(
-        `/api/proxy/credentials/${credentialId.trim()}/verify?${params.toString()}`
+        `/api/proxy/employer/verify/${credentialId.trim()}?${params.toString()}`
       );
 
+      clearTimeout(wakingTimer);
+      setWaking(false);
+
+      if (res.status === 404) {
+        throw new Error("Credential not found — the ID may be incorrect or does not exist.");
+      }
+      if (res.status === 403) {
+        throw new Error("Access denied — Employer role required.");
+      }
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        throw new Error(
-          body?.message || `Credential not found (HTTP ${res.status})`
-        );
+        throw new Error(body?.message || `Verification failed (HTTP ${res.status})`);
       }
 
       const data: VerificationResult = await res.json();
       setResult(data);
-
-      // Refresh logs after verification
-      await fetchLogs();
     } catch (err) {
+      clearTimeout(wakingTimer);
+      setWaking(false);
       setError((err as Error).message);
     } finally {
       setLoading(false);
     }
   };
 
+  // Determine result state
+  const isRevoked = result?.status === "REVOKED" || result?.verification?.revoked === true;
+  const isTampered = result?.verification?.tamperDetected === true;
+  const isVerified = result?.verification?.verified === true && !isRevoked;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-950 dark:to-slate-900">
       {/* Header */}
       <header className="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center">
-              <svg
-                className="w-6 h-6 text-white"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={2}
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z"
-                />
+              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
               </svg>
             </div>
             <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
-                AuthenX
-              </h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Credential Verification Platform
-              </p>
+              <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">AuthenX</h1>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Employer Verification Portal</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <a href="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
-              Admin Dashboard →
-            </a>
             <span className="text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-3 py-1 rounded-full">
-              Employer Portal
+              Employer
             </span>
-            <button
-              onClick={handleLogout}
-              className="text-sm font-medium text-red-500 hover:text-red-400 bg-red-50 dark:bg-red-950/50 px-3 py-1 rounded-full transition-colors"
-            >
+            <button onClick={handleLogout} className="text-sm font-medium text-red-500 hover:text-red-400 bg-red-50 dark:bg-red-950/50 px-3 py-1 rounded-full transition-colors cursor-pointer">
               Sign out
             </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-6 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-          {/* Left: Verify Form + Result */}
-          <div className="lg:col-span-3 space-y-6">
-            {/* Verify Card */}
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
-                Verify a Credential
-              </h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-                Enter the credential ID to cryptographically verify its
-                authenticity.
-              </p>
+      <main className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+        {/* Verify Card */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
+          <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">Verify a Credential</h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+            Enter the credential ID to cryptographically verify its authenticity.
+          </p>
 
-              <form onSubmit={handleVerify} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                    Organization Name
-                  </label>
-                  <input
-                    type="text"
-                    value={orgName}
-                    onChange={(e) => setOrgName(e.target.value)}
-                    placeholder="e.g. Acme Corp"
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                    Credential ID <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={credentialId}
-                    onChange={(e) => {
-                      let val = e.target.value.trim();
-                      // Strip QR payload prefix: authenx:<id>
-                      if (val.startsWith("authenx:")) {
-                        val = val.slice(8);
-                      }
-                      setCredentialId(val);
-                    }}
-                    placeholder="e.g. cmlmkz8o5000ly1mz... or authenx:<id>"
-                    required
-                    className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all font-mono text-sm"
-                  />
-                  <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
-                    Paste a credential ID or QR payload (authenx:&lt;id&gt;)
-                  </p>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={loading || !credentialId.trim()}
-                  className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-semibold transition-all cursor-pointer disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {loading ? (
-                    <>
-                      <svg
-                        className="animate-spin h-5 w-5"
-                        viewBox="0 0 24 24"
-                      >
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                          fill="none"
-                        />
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                        />
-                      </svg>
-                      Verifying…
-                    </>
-                  ) : (
-                    <>
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth={2}
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z"
-                        />
-                      </svg>
-                      Verify Credential
-                    </>
-                  )}
-                </button>
-              </form>
+          <form onSubmit={handleVerify} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Organization Name
+              </label>
+              <input
+                type="text"
+                value={orgName}
+                onChange={(e) => setOrgName(e.target.value)}
+                placeholder="e.g. Acme Corp"
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+              />
             </div>
 
-            {/* Error */}
-            {error && (
-              <div className="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-2xl p-5 flex items-start gap-3">
-                <svg
-                  className="w-6 h-6 text-red-500 shrink-0 mt-0.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  strokeWidth={2}
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"
-                  />
-                </svg>
-                <div>
-                  <p className="font-semibold text-red-800 dark:text-red-300">
-                    Verification Failed
-                  </p>
-                  <p className="text-sm text-red-600 dark:text-red-400 mt-0.5">
-                    {error}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Result Card */}
-            {result && (
-              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
-                {/* Status Banner */}
-                <div
-                  className={`px-6 py-5 ${
-                    result.verification.verified
-                      ? "bg-emerald-50 dark:bg-emerald-950/40 border-b border-emerald-200 dark:border-emerald-800"
-                      : "bg-red-50 dark:bg-red-950/40 border-b border-red-200 dark:border-red-800"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    {result.verification.verified ? (
-                      <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center">
-                        <svg
-                          className="w-7 h-7 text-emerald-600 dark:text-emerald-400"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          strokeWidth={2.5}
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
-                          />
-                        </svg>
-                      </div>
-                    ) : (
-                      <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
-                        <svg
-                          className="w-7 h-7 text-red-600 dark:text-red-400"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          strokeWidth={2.5}
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            d="M6 18 18 6M6 6l12 12"
-                          />
-                        </svg>
-                      </div>
-                    )}
-                    <div>
-                      <h3
-                        className={`text-2xl font-bold ${
-                          result.verification.verified
-                            ? "text-emerald-700 dark:text-emerald-300"
-                            : "text-red-700 dark:text-red-300"
-                        }`}
-                      >
-                        {result.verification.verified
-                          ? "VERIFIED"
-                          : result.verification.tamperDetected
-                            ? "TAMPERED"
-                            : "NOT VERIFIED"}
-                      </h3>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">
-                        {result.verification.tamperDetected
-                          ? "⚠ Credential data has been tampered with — hash mismatch detected"
-                          : `Verified at ${new Date(result.verification.verifiedAt).toLocaleString()}`}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Crypto checks */}
-                <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
-                  <div className="flex items-center gap-6">
-                    <Check
-                      label="SHA-256 Hash"
-                      ok={result.verification.hashValid}
-                    />
-                    <Check
-                      label="Ed25519 Signature"
-                      ok={result.verification.signatureValid}
-                    />
-                    <div className="ml-auto">
-                      <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                        Issuer
-                      </span>
-                      <p className="font-semibold text-blue-600 dark:text-blue-400">
-                        {result.issuerCode}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Credential Details */}
-                <div className="px-6 py-5">
-                  <h4 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
-                    Credential Details
-                  </h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <Field label="Name" value={result.name} />
-                    <Field label="Roll Number" value={result.rollNumber} mono />
-                    <Field label="Degree" value={result.degree} />
-                    <Field label="Branch" value={result.branch} />
-                    <Field
-                      label="Graduation Year"
-                      value={String(result.graduationYear)}
-                    />
-                    <Field label="CGPA" value={String(result.cgpa)} />
-                    <Field
-                      label="Issued At"
-                      value={new Date(result.issuedAt).toLocaleDateString()}
-                    />
-                    <Field
-                      label="Credential ID"
-                      value={result.credentialId}
-                      mono
-                    />
-                  </div>
-                </div>
-
-                {/* Public verify link */}
-                <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/30 border-t border-slate-100 dark:border-slate-800">
-                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Public Verification Link (no login required)</p>
-                  <div className="flex items-center gap-2">
-                    <code className="flex-1 text-xs font-mono text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 truncate">
-                      {typeof window !== "undefined" ? `${window.location.origin}/verify/${result.credentialId}` : ""}
-                    </code>
-                    <button
-                      onClick={() => navigator.clipboard.writeText(`${window.location.origin}/verify/${result.credentialId}`)}
-                      className="text-xs font-medium text-blue-600 hover:text-blue-500 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/50 cursor-pointer whitespace-nowrap"
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Right: Recent Logs */}
-          <div className="lg:col-span-2">
-            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6 sticky top-24">
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">
-                Recent Verifications
-              </h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                Last 10 verification checks
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Credential ID <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={credentialId}
+                onChange={(e) => {
+                  let val = e.target.value.trim();
+                  if (val.startsWith("authenx:")) val = val.slice(8);
+                  setCredentialId(val);
+                }}
+                placeholder="e.g. cmlmkz8o5000ly1mz... or authenx:<id>"
+                required
+                className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all font-mono text-sm"
+              />
+              <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+                Paste a credential ID or QR payload (authenx:&lt;id&gt;)
               </p>
+            </div>
 
-              {logsLoading ? (
-                <div className="flex justify-center py-8">
-                  <svg
-                    className="animate-spin h-6 w-6 text-blue-500"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                    />
+            <button
+              type="submit"
+              disabled={loading || !credentialId.trim()}
+              className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white font-semibold transition-all cursor-pointer disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                </div>
-              ) : logs.length === 0 ? (
-                <p className="text-center text-slate-400 dark:text-slate-500 py-8 text-sm">
-                  No verifications yet.
-                </p>
+                  {waking ? "Waking server…" : "Verifying…"}
+                </>
               ) : (
-                <div className="space-y-2">
-                  {logs.map((log) => (
-                    <div
-                      key={log.id}
-                      className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800"
-                    >
-                      <div
-                        className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                          log.result ? "bg-emerald-500" : "bg-red-500"
-                        }`}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">
-                          {log.orgName}
-                        </p>
-                        <p className="text-xs text-slate-400 dark:text-slate-500 font-mono truncate">
-                          {log.credentialId}
-                        </p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <span
-                          className={`text-xs font-semibold ${
-                            log.result
-                              ? "text-emerald-600 dark:text-emerald-400"
-                              : "text-red-600 dark:text-red-400"
-                          }`}
-                        >
-                          {log.result ? "PASS" : "FAIL"}
-                        </span>
-                        <p className="text-xs text-slate-400 dark:text-slate-500">
-                          {new Date(log.createdAt).toLocaleTimeString()}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+                <>
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
+                  </svg>
+                  Verify Credential
+                </>
+              )}
+            </button>
+          </form>
+        </div>
+
+        {/* Cold start hint */}
+        {waking && (
+          <div className="p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-amber-700 dark:text-amber-300 text-sm flex items-center gap-2">
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+            </svg>
+            Server is waking up from cold start. This may take 10-15 seconds on first request.
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div className="bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-2xl p-5 flex items-start gap-3">
+            <svg className="w-6 h-6 text-red-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+            </svg>
+            <div>
+              <p className="font-semibold text-red-800 dark:text-red-300">Verification Failed</p>
+              <p className="text-sm text-red-600 dark:text-red-400 mt-0.5">{error}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Result Card */}
+        {result && (
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
+            {/* Status Banner */}
+            <div className={`px-6 py-5 border-b ${
+              isRevoked
+                ? "bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800"
+                : isVerified
+                  ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800"
+                  : "bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800"
+            }`}>
+              <div className="flex items-center gap-3">
+                {isRevoked ? (
+                  <div className="w-12 h-12 rounded-full bg-amber-100 dark:bg-amber-900 flex items-center justify-center">
+                    <svg className="w-7 h-7 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" />
+                    </svg>
+                  </div>
+                ) : isVerified ? (
+                  <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-900 flex items-center justify-center">
+                    <svg className="w-7 h-7 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                    </svg>
+                  </div>
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-red-100 dark:bg-red-900 flex items-center justify-center">
+                    <svg className="w-7 h-7 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                  </div>
+                )}
+                <div>
+                  <h3 className={`text-2xl font-bold ${
+                    isRevoked
+                      ? "text-amber-700 dark:text-amber-300"
+                      : isVerified
+                        ? "text-emerald-700 dark:text-emerald-300"
+                        : "text-red-700 dark:text-red-300"
+                  }`}>
+                    {isRevoked ? "REVOKED" : isVerified ? "VERIFIED" : isTampered ? "TAMPERED" : "NOT VERIFIED"}
+                  </h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400">
+                    {isRevoked
+                      ? `This credential was revoked${result.revokedAt ? ` on ${new Date(result.revokedAt).toLocaleDateString()}` : ""}`
+                      : isTampered
+                        ? "⚠ Credential data has been tampered with — hash mismatch detected"
+                        : `Verified at ${new Date(result.verification.verifiedAt).toLocaleString()}`}
+                  </p>
+                </div>
+              </div>
+
+              {/* Revocation reason */}
+              {isRevoked && result.revokedReason && (
+                <div className="mt-3 p-3 bg-amber-100 dark:bg-amber-900/40 rounded-xl">
+                  <p className="text-sm text-amber-800 dark:text-amber-300">
+                    <span className="font-semibold">Reason:</span> {result.revokedReason}
+                  </p>
                 </div>
               )}
             </div>
+
+            {/* Crypto checks */}
+            <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-6">
+                <Check label="SHA-256 Hash" ok={result.verification.hashValid} />
+                <Check label="Ed25519 Signature" ok={result.verification.signatureValid} />
+                <div className="ml-auto">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    Issuer
+                  </span>
+                  <p className="font-semibold text-blue-600 dark:text-blue-400">{result.issuerCode}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Credential Details */}
+            <div className="px-6 py-5">
+              <h4 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
+                Credential Details
+              </h4>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Name" value={result.name} />
+                <Field label="Roll Number" value={result.rollNumber} mono />
+                <Field label="Degree" value={result.degree} />
+                <Field label="Branch" value={result.branch} />
+                <Field label="Graduation Year" value={String(result.graduationYear)} />
+                <Field label="CGPA" value={String(result.cgpa)} />
+                <Field label="Issued At" value={new Date(result.issuedAt).toLocaleDateString()} />
+                <Field label="Credential ID" value={result.credentialId} mono />
+              </div>
+            </div>
+
+            {/* Public verify link */}
+            <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/30 border-t border-slate-100 dark:border-slate-800">
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Public Verification Link (no login required)</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-xs font-mono text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 truncate">
+                  {typeof window !== "undefined" ? `${window.location.origin}/verify/${result.credentialId}` : ""}
+                </code>
+                <button
+                  onClick={() => navigator.clipboard.writeText(`${window.location.origin}/verify/${result.credentialId}`)}
+                  className="text-xs font-medium text-blue-600 hover:text-blue-500 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/50 cursor-pointer whitespace-nowrap"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
           </div>
-        </div>
+        )}
       </main>
     </div>
   );
@@ -546,62 +372,24 @@ function Check({ label, ok }: { label: string; ok: boolean }) {
   return (
     <div className="flex items-center gap-2">
       {ok ? (
-        <svg
-          className="w-5 h-5 text-emerald-500"
-          fill="none"
-          viewBox="0 0 24 24"
-          strokeWidth={2}
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="m4.5 12.75 6 6 9-13.5"
-          />
+        <svg className="w-5 h-5 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
         </svg>
       ) : (
-        <svg
-          className="w-5 h-5 text-red-500"
-          fill="none"
-          viewBox="0 0 24 24"
-          strokeWidth={2}
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M6 18 18 6M6 6l12 12"
-          />
+        <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
         </svg>
       )}
-      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-        {label}
-      </span>
+      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>
     </div>
   );
 }
 
-function Field({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
+function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div>
-      <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-        {label}
-      </span>
-      <p
-        className={`text-sm font-medium text-slate-900 dark:text-white mt-0.5 truncate ${
-          mono ? "font-mono" : ""
-        }`}
-      >
-        {value}
-      </p>
+      <span className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">{label}</span>
+      <p className={`text-sm font-medium text-slate-900 dark:text-white mt-0.5 truncate ${mono ? "font-mono" : ""}`}>{value}</p>
     </div>
   );
 }

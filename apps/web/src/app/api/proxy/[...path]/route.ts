@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 
 // Server-side URL: inside Docker use internal network; in prod/Render, use the public URL.
 const API_URL =
@@ -11,9 +12,7 @@ const API_URL =
  *
  * Forwards requests to the cloud-api backend, injecting the JWT
  * from the web-domain cookie as an Authorization header.
- *
- * This avoids cross-origin cookie issues when web and API are on
- * different domains (e.g. Render free tier).
+ * Generates x-request-id for observability.
  */
 async function handler(
   request: NextRequest,
@@ -29,11 +28,15 @@ async function handler(
   // Read JWT from the web-domain cookie
   const token = request.cookies.get("token")?.value;
 
+  // Generate x-request-id for tracing
+  const requestId = randomUUID();
+
   // Forward headers (Content-Type, etc.)
   const headers = new Headers();
   const contentType = request.headers.get("content-type");
   if (contentType) headers.set("Content-Type", contentType);
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  headers.set("x-request-id", requestId);
 
   // Forward body for POST/PUT/PATCH
   let body: string | null = null;
@@ -53,12 +56,13 @@ async function handler(
       status: upstream.status,
       headers: {
         "Content-Type": upstream.headers.get("Content-Type") || "application/json",
+        "x-request-id": requestId,
       },
     });
   } catch {
     return NextResponse.json(
-      { message: "API proxy error" },
-      { status: 502 }
+      { message: "API proxy error — backend may be starting up", requestId },
+      { status: 502, headers: { "x-request-id": requestId } }
     );
   }
 }
