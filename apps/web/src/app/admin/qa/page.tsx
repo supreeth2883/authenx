@@ -26,7 +26,7 @@ const INITIAL_STEPS: Step[] = [
   // — Platform Data —
   { id: 9, label: "Platform Stats", description: "Verify stats endpoint returns data", status: "idle" },
   { id: 10, label: "Credential Explorer", description: "Check credentials exist in database", status: "idle" },
-  { id: 11, label: "Public Verify", description: "Verify credential via public endpoint (no auth)", status: "idle" },
+  { id: 11, label: "Public Blocked", description: "Confirm public verify endpoint is disabled (returns 404)", status: "idle" },
   { id: 12, label: "Credential Integrity", description: "Deep-verify hash + signature on a credential", status: "idle" },
   // — Audit & Analytics —
   { id: 13, label: "Audit Chain", description: "Verify audit log hash-chain integrity", status: "idle" },
@@ -251,21 +251,20 @@ export default function QAPage() {
       updateStep(10, { status: "fail", detail: (e as Error).message });
     }
 
-    // 11. Public Verify
+    // 11. Public Verify Blocked — confirm endpoint is disabled
     updateStep(11, { status: "running" });
     if (firstCredentialId) {
       try {
         const { res, ms } = await timedFetch(`public/verify/${firstCredentialId}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const v = await res.json();
-        const label = v.verification?.revoked
-          ? "REVOKED"
-          : v.verification?.verified
-            ? "VERIFIED"
-            : v.verification?.tamperDetected
-              ? "TAMPERED"
-              : "UNKNOWN";
-        updateStep(11, { status: "pass", detail: `${label} — hash:${v.verification?.hashValid ? "✓" : "✗"} sig:${v.verification?.signatureValid ? "✓" : "✗"}`, durationMs: ms });
+        if (res.status === 404) {
+          updateStep(11, { status: "pass", detail: "Public endpoint correctly returns 404 — disabled", durationMs: ms });
+        } else if (res.status === 401 || res.status === 403) {
+          updateStep(11, { status: "pass", detail: `Public endpoint correctly returns ${res.status} — access denied`, durationMs: ms });
+        } else if (res.ok) {
+          updateStep(11, { status: "fail", detail: "SECURITY: Public endpoint still accessible — should be disabled" });
+        } else {
+          updateStep(11, { status: "pass", detail: `Endpoint returned ${res.status} — not publicly accessible`, durationMs: ms });
+        }
       } catch (e: unknown) {
         updateStep(11, { status: "fail", detail: (e as Error).message });
       }
@@ -519,7 +518,7 @@ export default function QAPage() {
         {/* Footer */}
         <div className="text-center">
           <p className="text-xs text-slate-400 dark:text-slate-500">
-            AuthenX QA — All checks run as SUPER_ADMIN via the proxy. Public verify uses the unauthenticated endpoint.
+            AuthenX QA — All checks run as SUPER_ADMIN via the proxy. Public verify is disabled — verification requires employer login.
           </p>
         </div>
       </main>

@@ -713,7 +713,7 @@ export default function IssueCredentialsPage() {
                               </button>
                               {/* Copy verify link */}
                               <button
-                                onClick={() => copyToClipboard(`${window.location.origin}/verify/${cred.id}`, `link-${cred.id}`)}
+                                onClick={() => copyToClipboard(`${window.location.origin}/employer/verify/${cred.id}`, `link-${cred.id}`)}
                                 title="Copy verify link"
                                 className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer transition-colors"
                               >
@@ -792,7 +792,7 @@ export default function IssueCredentialsPage() {
             <div className="flex justify-center mb-6" id="qr-modal-svg">
               <div className="p-4 bg-white rounded-2xl">
                 <QRCodeSVG
-                  value={`${typeof window !== "undefined" ? window.location.origin : ""}/verify/${qrModal.id}`}
+                  value={`${typeof window !== "undefined" ? window.location.origin : ""}/employer/verify/${qrModal.id}`}
                   size={200}
                   level="M"
                   includeMargin
@@ -802,7 +802,7 @@ export default function IssueCredentialsPage() {
             <p className="text-xs text-center font-mono text-slate-400 dark:text-slate-500 break-all mb-4">{qrModal.id}</p>
             <div className="flex gap-2">
               <button
-                onClick={() => copyToClipboard(`${window.location.origin}/verify/${qrModal.id}`, "qr-link")}
+                onClick={() => copyToClipboard(`${window.location.origin}/employer/verify/${qrModal.id}`, "qr-link")}
                 className="flex-1 py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 {copiedId === "qr-link" ? "Copied!" : "Copy Link"}
@@ -921,7 +921,7 @@ function ResultRow({
           {item.status === "MATCHED_AND_ISSUED" && item.credentialId && (
             <span>
               Issued —{" "}
-              <a href={`/verify/${item.credentialId}`} className="text-indigo-600 dark:text-indigo-400 hover:underline font-mono">
+              <a href={`/employer/verify/${item.credentialId}`} className="text-indigo-600 dark:text-indigo-400 hover:underline font-mono">
                 {item.credentialId.slice(0, 12)}…
               </a>
             </span>
@@ -929,7 +929,7 @@ function ResultRow({
           {item.status === "ALREADY_ISSUED" && item.credentialId && (
             <span>
               Already exists —{" "}
-              <a href={`/verify/${item.credentialId}`} className="text-blue-600 dark:text-blue-400 hover:underline font-mono">
+              <a href={`/employer/verify/${item.credentialId}`} className="text-blue-600 dark:text-blue-400 hover:underline font-mono">
                 {item.credentialId.slice(0, 12)}…
               </a>
             </span>
@@ -971,7 +971,7 @@ function ResultRow({
                   )}
                 </button>
                 <button
-                  onClick={() => onCopy(`${window.location.origin}/verify/${item.credentialId}`, `res-link-${idx}`)}
+                  onClick={() => onCopy(`${window.location.origin}/employer/verify/${item.credentialId}`, `res-link-${idx}`)}
                   title="Copy verify link"
                   className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer transition-colors"
                 >

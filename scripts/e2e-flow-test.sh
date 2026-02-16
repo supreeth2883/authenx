@@ -5,9 +5,9 @@
 #   SUPER_ADMIN registers issuer + seeds ERP →
 #   COLLEGE_ADMIN publishes credential →
 #   EMPLOYER verifies →
-#   PUBLIC verify →
+#   Public verify blocked (returns 404) →
 #   COLLEGE_ADMIN revokes →
-#   Re-verify shows REVOKED
+#   Re-verify (employer) shows REVOKED
 #
 # Usage:
 #   ./scripts/e2e-flow-test.sh                          # default: http://localhost:3001
@@ -290,21 +290,15 @@ else
   skip "No credential ID"
 fi
 
-step "Public Verify (no auth)" "GET /public/verify/$CRED_ID"
+step "Public Verify Blocked" "GET /public/verify/$CRED_ID (expect 404)"
 if [[ -n "$CRED_ID" ]]; then
-  # Public verify — no cookie jar needed, but curl needs one for syntax
   parse_response "$(curl -s -w "\n%{http_code}" -X GET "$API/public/verify/$CRED_ID")"
-  if [[ "$HTTP_CODE" == "200" ]]; then
-    VERIFIED=$(json_get "$BODY" '.verification.verified')
-    HASH_OK=$(json_get "$BODY" '.verification.hashValid')
-    SIG_OK=$(json_get "$BODY" '.verification.signatureValid')
-    if [[ "$VERIFIED" == "true" ]]; then
-      pass "VERIFIED (public) — hash:$HASH_OK sig:$SIG_OK"
-    else
-      fail "Not verified: $BODY"
-    fi
+  if [[ "$HTTP_CODE" == "404" ]] || [[ "$HTTP_CODE" == "401" ]] || [[ "$HTTP_CODE" == "403" ]]; then
+    pass "Public endpoint correctly blocked (HTTP $HTTP_CODE)"
+  elif [[ "$HTTP_CODE" == "200" ]]; then
+    fail "SECURITY: Public verify endpoint still accessible — should be disabled"
   else
-    fail "HTTP $HTTP_CODE — $BODY"
+    pass "Public endpoint returned $HTTP_CODE — not accessible"
   fi
 else
   skip "No credential ID"
@@ -327,13 +321,13 @@ else
   skip "No credential ID"
 fi
 
-step "Re-verify Shows REVOKED" "GET /public/verify/$CRED_ID"
+step "Re-verify Shows REVOKED" "GET /employer/verify/$CRED_ID (employer auth)"
 if [[ -n "$CRED_ID" ]]; then
-  parse_response "$(curl -s -w "\n%{http_code}" -X GET "$API/public/verify/$CRED_ID")"
+  parse_response "$(api_call GET "/employer/verify/$CRED_ID?orgName=E2E-Revoke-Check" "$EMPLOYER_JAR")"
   if [[ "$HTTP_CODE" == "200" ]]; then
     REVOKED=$(json_get "$BODY" '.verification.revoked')
     if [[ "$REVOKED" == "true" ]]; then
-      pass "Correctly shows REVOKED"
+      pass "Correctly shows REVOKED (employer verify)"
     else
       fail "Expected revoked=true, got: $BODY"
     fi

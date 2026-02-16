@@ -27,7 +27,7 @@ export class CredentialsController {
   @Get(':id/verify')
   @ThrottleVerify()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.EMPLOYER, UserRole.COLLEGE_ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.EMPLOYER)
   async verify(
     @Param('id') id: string,
     @Query('orgName') orgName?: string,

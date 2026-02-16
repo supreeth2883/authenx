@@ -426,7 +426,7 @@ On Render free tier, services spin down after 15 min of inactivity. First reques
 | Issue credentials | 🚫 403 | ✅ | 🚫 403 |
 | Revoke credentials | 🚫 403 | ✅ | 🚫 403 |
 | `/employer` verify | 🚫 redirect | 🚫 redirect | ✅ |
-| Public `/verify/:id` | ✅ (no login) | ✅ (no login) | ✅ (no login) |
+| `/verify/:id` (legacy) | ➡️ redirects to `/employer/verify/:id` | ➡️ redirects | ➡️ redirects |
 
 ### API Endpoints (via proxy)
 
@@ -452,8 +452,7 @@ PATCH  /api/proxy/college/credentials/:id/revoke  { reason }
 # Employer (EMPLOYER only)
 GET    /api/proxy/employer/verify/:id?orgName=
 
-# Public (no auth required)
-GET    /api/proxy/public/verify/:id
+# Public verify is DISABLED — all verification requires employer login
 ```
 
 ### Troubleshooting
@@ -506,7 +505,7 @@ AuthenX includes a built-in platform QA page accessible at `/admin/qa` (requires
 | 5 | Connector Ping | `POST /admin/issuers/:code/ping` |
 | 6 | Platform Stats | `GET /admin/stats` |
 | 7 | Credential Explorer | `GET /admin/credentials` |
-| 8 | Public Verify | `GET /public/verify/:id` |
+| 8 | Public Verify Blocked | Confirm `/public/verify/:id` returns 404 |
 | 9 | Audit Chain Integrity | `GET /admin/audit-logs/verify-chain` |
 | 10 | Analytics | `GET /admin/analytics` |
 | 11 | Audit Export | `GET /admin/audit-logs/export` |

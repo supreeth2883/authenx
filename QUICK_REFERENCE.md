@@ -95,8 +95,8 @@ docker-compose -f docker-compose.prod.yml ps
 | GET | /auth/me | JWT | Current user + issuerCode |
 | POST | /college/credentials/publish | COLLEGE_ADMIN | Batch issue credentials |
 | GET | /college/credentials | COLLEGE_ADMIN | List issued (paginated, search) |
-| GET | /credentials/:id/verify | — | Verify a credential |
-| GET | /public/verify/:id | — | Public verification |
+| GET | /credentials/:id/verify | EMPLOYER | Verify a credential |
+| GET | /employer/verify/:id | EMPLOYER | Employer verification (no PII) |
 | GET | /admin/stats | ADMIN | Dashboard stats (issuer-scoped) |
 | GET | /admin/credentials | ADMIN | Credential explorer (issuer-scoped) |
 | GET | /admin/analytics | ADMIN | Issuance analytics (issuer-scoped) |

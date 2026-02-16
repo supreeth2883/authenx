@@ -9,7 +9,8 @@ import type { Request } from 'express';
 
 /**
  * Employer verification portal — EMPLOYER role only.
- * All verification goes through this controller.
+ * Returns only minimal safe fields — NO student PII (name, CGPA, roll number, etc.).
+ * This is the ONLY verification endpoint. Public verification is disabled.
  */
 @Controller('employer')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -29,10 +30,29 @@ export class EmployerController {
     const actor = (req as any)?.user?.email || 'unknown';
     const ipAddress = req?.ip || req?.headers?.['x-forwarded-for']?.toString() || 'unknown';
     this.logger.log(`Employer verify request for credential ${id} by ${actor}`);
-    return this.credentialsService.verify(id, {
+
+    // Full verification (hash + signature + audit)
+    const full = await this.credentialsService.verify(id, {
       orgName: orgName || 'Employer Verification',
       actor,
       ipAddress,
     });
+
+    // Strip PII — return only safe, minimal fields
+    return {
+      credentialId: full.credentialId,
+      issuerCode: full.issuerCode,
+      issuedAt: full.issuedAt,
+      status: full.status,
+      revokedAt: full.revokedAt ?? null,
+      verification: {
+        hashValid: full.verification.hashValid,
+        signatureValid: full.verification.signatureValid,
+        verified: full.verification.verified,
+        revoked: full.verification.revoked,
+        tamperDetected: full.verification.tamperDetected,
+        verifiedAt: full.verification.verifiedAt,
+      },
+    };
   }
 }

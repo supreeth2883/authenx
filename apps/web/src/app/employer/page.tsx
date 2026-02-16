@@ -329,38 +329,50 @@ function EmployerPageInner() {
               </div>
             </div>
 
-            {/* Credential Details */}
+            {/* Minimal Safe Details — NO PII */}
             <div className="px-6 py-5">
               <h4 className="text-sm font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-3">
-                Credential Details
+                Credential Info
               </h4>
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Name" value={result.name} />
-                <Field label="Roll Number" value={result.rollNumber} mono />
-                <Field label="Degree" value={result.degree} />
-                <Field label="Branch" value={result.branch} />
-                <Field label="Graduation Year" value={String(result.graduationYear)} />
-                <Field label="CGPA" value={String(result.cgpa)} />
-                <Field label="Issued At" value={new Date(result.issuedAt).toLocaleDateString()} />
                 <Field label="Credential ID" value={result.credentialId} mono />
+                <Field label="Issuer" value={result.issuerCode} />
+                <Field label="Issued At" value={new Date(result.issuedAt).toLocaleDateString()} />
+                <Field label="Status" value={result.status || (isRevoked ? "REVOKED" : isVerified ? "ISSUED" : "UNKNOWN")} />
+                {isRevoked && result.revokedAt && (
+                  <Field label="Revoked At" value={new Date(result.revokedAt).toLocaleDateString()} />
+                )}
               </div>
             </div>
 
-            {/* Public verify link */}
+            {/* Privacy Notice */}
+            <div className="px-6 py-4 bg-blue-50 dark:bg-blue-950/30 border-t border-slate-100 dark:border-slate-800">
+              <div className="flex items-start gap-2">
+                <svg className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                </svg>
+                <p className="text-xs text-blue-700 dark:text-blue-300">
+                  <span className="font-semibold">Privacy Protected:</span> No sensitive student data (name, CGPA, roll number) is exposed through this verification.
+                  Only the credential status and cryptographic integrity are shown.
+                </p>
+              </div>
+            </div>
+
+            {/* Employer verify link */}
             <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/30 border-t border-slate-100 dark:border-slate-800">
-              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Public Verification Link (no login required)</p>
+              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Employer Verification Link (login required)</p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 text-xs font-mono text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 truncate">
-                  {typeof window !== "undefined" ? `${window.location.origin}/verify/${result.credentialId}` : ""}
+                  {typeof window !== "undefined" ? `${window.location.origin}/employer/verify/${result.credentialId}` : ""}
                 </code>
                 <button
-                  onClick={() => navigator.clipboard.writeText(`${window.location.origin}/verify/${result.credentialId}`)}
+                  onClick={() => navigator.clipboard.writeText(`${window.location.origin}/employer/verify/${result.credentialId}`)}
                   className="text-xs font-medium text-blue-600 hover:text-blue-500 px-3 py-2 rounded-lg bg-blue-50 dark:bg-blue-950/50 cursor-pointer whitespace-nowrap"
                 >
                   Copy
                 </button>
                 <a
-                  href={`/verify/${result.credentialId}`}
+                  href={`/employer/verify/${result.credentialId}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-xs font-medium text-emerald-600 hover:text-emerald-500 px-3 py-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 cursor-pointer whitespace-nowrap"
