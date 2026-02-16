@@ -129,6 +129,9 @@ export default function AdminPage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <a href="/admin/issuers" className="text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-500 dark:hover:text-emerald-300 transition-colors">
+              Issuers →
+            </a>
             <a href="/admin/users" className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors">
               Manage Users →
             </a>
