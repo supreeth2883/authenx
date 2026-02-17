@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Param,
+  Query,
   UseGuards,
   Logger,
   HttpException,
@@ -11,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { IssuersService } from '../issuers/issuers.service.js';
+import { CredentialsService } from '../credentials/credentials.service.js';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/guards/roles.guard.js';
@@ -26,6 +28,7 @@ export class AdminIssuersController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly issuersService: IssuersService,
+    private readonly credentialsService: CredentialsService,
   ) {}
 
   /**
@@ -302,5 +305,175 @@ export class AdminIssuersController {
         HttpStatus.BAD_GATEWAY,
       );
     }
+  }
+
+  /* ─────────────────────────────────────────────────────────────
+   * Model A: ERP-integrated credential issuance
+   * POST  /admin/issuers/:issuerCode/credentials/issue   { rollNumber }
+   * GET   /admin/issuers/:issuerCode/credentials          (list, paginated)
+   * GET   /admin/issuers/:issuerCode/credentials/:id      (detail)
+   * POST  /admin/issuers/:issuerCode/credentials/:id/revoke { reason }
+   * ───────────────────────────────────────────────────────────── */
+
+  /**
+   * Issue a credential by looking up the student from the connector's ERP,
+   * then signing + storing via CredentialsService.
+   * Body: { rollNumber: string }
+   */
+  @Post(':issuerCode/credentials/issue')
+  async issueCredentialFromErp(
+    @Param('issuerCode') issuerCode: string,
+    @Body() body: { rollNumber?: string },
+  ) {
+    if (!body?.rollNumber?.trim()) {
+      throw new HttpException('rollNumber is required', HttpStatus.BAD_REQUEST);
+    }
+
+    const issuer = await this.prisma.issuer.findUnique({ where: { issuerCode } });
+    if (!issuer) {
+      throw new HttpException(`Issuer "${issuerCode}" not found`, HttpStatus.NOT_FOUND);
+    }
+
+    const adminKey = process.env.CONNECTOR_ADMIN_KEY;
+    if (!adminKey) {
+      throw new HttpException('CONNECTOR_ADMIN_KEY not configured on cloud-api', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    // 1. Lookup student from connector's ERP
+    let student: { rollNumber: string; name: string; degree: string; branch: string; graduationYear: number; cgpa: number };
+    try {
+      const res = await fetch(
+        `${issuer.connectorBaseUrl}/erp/admin/lookup/${encodeURIComponent(body.rollNumber.trim())}`,
+        {
+          headers: { Authorization: `Bearer ${adminKey}` },
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      if (res.status === 404) {
+        throw new HttpException(
+          `Student "${body.rollNumber}" not found in ERP. Seed the student first via ERP admin.`,
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`Connector returned HTTP ${res.status}: ${errBody}`);
+      }
+      student = (await res.json()) as typeof student;
+    } catch (err) {
+      if (err instanceof HttpException) throw err;
+      throw new HttpException(
+        `Failed to lookup student from ERP: ${(err as Error).message}`,
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+
+    this.logger.log(
+      `[MODEL-A] Issuing credential for ${student.rollNumber} (${student.name}) via issuer ${issuerCode}`,
+    );
+
+    // 2. Issue credential using the ERP data as source of truth
+    try {
+      const result = await this.credentialsService.issue({
+        issuerCode,
+        name: student.name,
+        rollNumber: student.rollNumber,
+        degree: student.degree,
+        branch: student.branch,
+        graduationYear: student.graduationYear,
+        cgpa: student.cgpa,
+      });
+      return {
+        ...result,
+        student: {
+          rollNumber: student.rollNumber,
+          name: student.name,
+          degree: student.degree,
+          branch: student.branch,
+          graduationYear: student.graduationYear,
+        },
+      };
+    } catch (err) {
+      const message = (err as any)?.response?.message ?? (err as Error).message;
+      const status = (err as any)?.status ?? HttpStatus.INTERNAL_SERVER_ERROR;
+      throw new HttpException(message, status);
+    }
+  }
+
+  /**
+   * List credentials for a specific issuer (paginated)
+   */
+  @Get(':issuerCode/credentials')
+  async listCredentials(
+    @Param('issuerCode') issuerCode: string,
+    @Query('search') search?: string,
+    @Query('branch') branch?: string,
+    @Query('graduationYear') graduationYearStr?: string,
+    @Query('page') pageStr?: string,
+    @Query('limit') limitStr?: string,
+  ) {
+    const issuer = await this.prisma.issuer.findUnique({ where: { issuerCode } });
+    if (!issuer) {
+      throw new HttpException(`Issuer "${issuerCode}" not found`, HttpStatus.NOT_FOUND);
+    }
+
+    const page = Math.max(parseInt(pageStr || '1', 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(limitStr || '20', 10) || 20, 1), 100);
+    const graduationYear = parseInt(graduationYearStr || '', 10);
+
+    return this.credentialsService.findAll({
+      issuerCode,
+      search: search?.trim(),
+      branch: branch?.trim(),
+      graduationYear: !isNaN(graduationYear) ? graduationYear : undefined,
+      page,
+      limit,
+    });
+  }
+
+  /**
+   * Get a single credential detail (scoped to issuer)
+   */
+  @Get(':issuerCode/credentials/:id')
+  async getCredential(
+    @Param('issuerCode') issuerCode: string,
+    @Param('id') id: string,
+  ) {
+    const issuer = await this.prisma.issuer.findUnique({ where: { issuerCode } });
+    if (!issuer) {
+      throw new HttpException(`Issuer "${issuerCode}" not found`, HttpStatus.NOT_FOUND);
+    }
+
+    const credential = await this.credentialsService.findById(id);
+    if (!credential || credential.issuerCode !== issuerCode) {
+      throw new HttpException('Credential not found for this issuer', HttpStatus.NOT_FOUND);
+    }
+    return credential;
+  }
+
+  /**
+   * Revoke a credential (scoped to issuer)
+   */
+  @Post(':issuerCode/credentials/:id/revoke')
+  async revokeCredential(
+    @Param('issuerCode') issuerCode: string,
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+  ) {
+    const issuer = await this.prisma.issuer.findUnique({ where: { issuerCode } });
+    if (!issuer) {
+      throw new HttpException(`Issuer "${issuerCode}" not found`, HttpStatus.NOT_FOUND);
+    }
+
+    if (!body?.reason?.trim()) {
+      throw new HttpException('Revocation reason is required', HttpStatus.BAD_REQUEST);
+    }
+
+    return this.credentialsService.revoke(id, {
+      issuerCode,
+      reason: body.reason.trim(),
+      actor: 'super-admin',
+      ipAddress: 'admin-console',
+    });
   }
 }

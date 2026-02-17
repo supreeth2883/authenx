@@ -23,15 +23,18 @@ const INITIAL_STEPS: Step[] = [
   { id: 6, label: "ERP Records", description: "List mock ERP student records for first issuer", status: "idle" },
   { id: 7, label: "ERP Seed", description: "Seed deterministic QA test student into mock ERP", status: "idle" },
   { id: 8, label: "ERP Lookup", description: "Lookup seeded QA student by roll number", status: "idle" },
+  // — Model A: ERP → Issue → Verify —
+  { id: 9, label: "ERP → Issue", description: "Issue credential for QA student from ERP (Model A)", status: "idle" },
+  { id: 10, label: "Issued Detail", description: "Fetch and verify the newly issued credential detail", status: "idle" },
   // — Platform Data —
-  { id: 9, label: "Platform Stats", description: "Verify stats endpoint returns data", status: "idle" },
-  { id: 10, label: "Credential Explorer", description: "Check credentials exist in database", status: "idle" },
-  { id: 11, label: "Public Blocked", description: "Confirm public verify endpoint is disabled (returns 404)", status: "idle" },
-  { id: 12, label: "Credential Integrity", description: "Deep-verify hash + signature on a credential", status: "idle" },
+  { id: 11, label: "Platform Stats", description: "Verify stats endpoint returns data", status: "idle" },
+  { id: 12, label: "Credential Explorer", description: "Check credentials exist in database", status: "idle" },
+  { id: 13, label: "Public Blocked", description: "Confirm public verify endpoint is disabled (returns 404)", status: "idle" },
+  { id: 14, label: "Credential Integrity", description: "Deep-verify hash + signature on a credential", status: "idle" },
   // — Audit & Analytics —
-  { id: 13, label: "Audit Chain", description: "Verify audit log hash-chain integrity", status: "idle" },
-  { id: 14, label: "Analytics", description: "Check issuedPerDay + verification rate", status: "idle" },
-  { id: 15, label: "Audit Export", description: "Test CSV audit log export", status: "idle" },
+  { id: 15, label: "Audit Chain", description: "Verify audit log hash-chain integrity", status: "idle" },
+  { id: 16, label: "Analytics", description: "Check issuedPerDay + verification rate", status: "idle" },
+  { id: 17, label: "Audit Export", description: "Test CSV audit log export", status: "idle" },
 ];
 
 export default function QAPage() {
@@ -245,60 +248,128 @@ export default function QAPage() {
       updateStep(8, { status: "skip", detail: "No issuer" });
     }
 
-    // 9. Platform Stats
+    // 9. Model A: ERP → Issue — issue a credential from ERP lookup
+    let qaCredentialId: string | null = null;
     updateStep(9, { status: "running" });
+    if (erpDisabled) {
+      updateStep(9, { status: "skip", detail: "MOCK_ERP_ADMIN_MODE=disabled — set to 'enabled' on connector for QA" });
+    } else if (firstIssuerCode) {
+      try {
+        const { res, ms } = await timedFetch(`admin/issuers/${firstIssuerCode}/credentials/issue`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rollNumber: QA_STUDENT.rollNumber }),
+        });
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({ message: `HTTP ${res.status}` }));
+          // 409 = already issued (not an error for QA)
+          if (res.status === 409) {
+            const match = (errBody.message || "").match(/id=([a-zA-Z0-9]+)/);
+            qaCredentialId = match ? match[1] : null;
+            updateStep(9, { status: "pass", detail: `Already issued — ${qaCredentialId?.slice(0, 16) ?? "exists"}…`, durationMs: ms });
+          } else {
+            throw new Error(errBody.message || `HTTP ${res.status}`);
+          }
+        } else {
+          const issued = await res.json();
+          qaCredentialId = issued.credentialId;
+          updateStep(9, {
+            status: "pass",
+            detail: `Issued ${qaCredentialId!.slice(0, 16)}… for ${QA_STUDENT.rollNumber} — hash=${issued.hash?.slice(0, 12)}… sig=${issued.signature?.slice(0, 12)}…`,
+            durationMs: ms,
+          });
+        }
+      } catch (e: unknown) {
+        updateStep(9, { status: "fail", detail: (e as Error).message });
+      }
+    } else {
+      updateStep(9, { status: "skip", detail: "No issuer to issue against" });
+    }
+
+    // 10. Issued Detail — fetch the issued credential and verify fields
+    updateStep(10, { status: "running" });
+    if (qaCredentialId && firstIssuerCode) {
+      try {
+        const { res, ms } = await timedFetch(`admin/issuers/${firstIssuerCode}/credentials/${qaCredentialId}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const cred = await res.json();
+        const checks: string[] = [];
+        if (cred.hash) checks.push("hash:✓");
+        if (cred.signature) checks.push("sig:✓");
+        if (cred.rollNumber === QA_STUDENT.rollNumber) checks.push("roll:✓");
+        if (cred.name === QA_STUDENT.name) checks.push("name:✓");
+        if (cred.status === "ISSUED") checks.push("status:ISSUED");
+        const allGood = cred.hash && cred.signature && cred.status === "ISSUED";
+        updateStep(10, {
+          status: allGood ? "pass" : "fail",
+          detail: checks.join(" | "),
+          durationMs: ms,
+        });
+        // Use this as the firstCredentialId if we don't have one yet
+        if (!firstCredentialId) firstCredentialId = qaCredentialId;
+      } catch (e: unknown) {
+        updateStep(10, { status: "fail", detail: (e as Error).message });
+      }
+    } else if (erpDisabled) {
+      updateStep(10, { status: "skip", detail: "Skipped — ERP admin mode disabled" });
+    } else {
+      updateStep(10, { status: "skip", detail: "No issued credential to verify" });
+    }
+
+    // 11. Platform Stats
+    updateStep(11, { status: "running" });
     try {
       const { res, ms } = await timedFetch("admin/stats");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const s = await res.json();
-      updateStep(9, {
+      updateStep(11, {
         status: "pass",
         detail: `${s.totalCredentials} credentials, ${s.totalVerifications} verifications`,
         durationMs: ms,
       });
     } catch (e: unknown) {
-      updateStep(9, { status: "fail", detail: (e as Error).message });
+      updateStep(11, { status: "fail", detail: (e as Error).message });
     }
 
-    // 10. Credential Explorer
-    updateStep(10, { status: "running" });
+    // 12. Credential Explorer
+    updateStep(12, { status: "running" });
     try {
       const { res, ms } = await timedFetch("admin/credentials?page=1&limit=1");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const creds = await res.json();
       if (creds.data?.length > 0) {
         firstCredentialId = creds.data[0].id;
-        updateStep(10, { status: "pass", detail: `${creds.total} total — first: ${firstCredentialId!.slice(0, 16)}…`, durationMs: ms });
+        updateStep(12, { status: "pass", detail: `${creds.total} total — first: ${firstCredentialId!.slice(0, 16)}…`, durationMs: ms });
       } else {
-        updateStep(10, { status: "fail", detail: "No credentials in database" });
+        updateStep(12, { status: "fail", detail: "No credentials in database" });
       }
     } catch (e: unknown) {
-      updateStep(10, { status: "fail", detail: (e as Error).message });
+      updateStep(12, { status: "fail", detail: (e as Error).message });
     }
 
-    // 11. Public Verify Blocked — confirm endpoint is disabled
-    updateStep(11, { status: "running" });
+    // 13. Public Verify Blocked — confirm endpoint is disabled
+    updateStep(13, { status: "running" });
     if (firstCredentialId) {
       try {
         const { res, ms } = await timedFetch(`public/verify/${firstCredentialId}`);
         if (res.status === 404) {
-          updateStep(11, { status: "pass", detail: "Public endpoint correctly returns 404 — disabled", durationMs: ms });
+          updateStep(13, { status: "pass", detail: "Public endpoint correctly returns 404 — disabled", durationMs: ms });
         } else if (res.status === 401 || res.status === 403) {
-          updateStep(11, { status: "pass", detail: `Public endpoint correctly returns ${res.status} — access denied`, durationMs: ms });
+          updateStep(13, { status: "pass", detail: `Public endpoint correctly returns ${res.status} — access denied`, durationMs: ms });
         } else if (res.ok) {
-          updateStep(11, { status: "fail", detail: "SECURITY: Public endpoint still accessible — should be disabled" });
+          updateStep(13, { status: "fail", detail: "SECURITY: Public endpoint still accessible — should be disabled" });
         } else {
-          updateStep(11, { status: "pass", detail: `Endpoint returned ${res.status} — not publicly accessible`, durationMs: ms });
+          updateStep(13, { status: "pass", detail: `Endpoint returned ${res.status} — not publicly accessible`, durationMs: ms });
         }
       } catch (e: unknown) {
-        updateStep(11, { status: "fail", detail: (e as Error).message });
+        updateStep(13, { status: "fail", detail: (e as Error).message });
       }
     } else {
-      updateStep(11, { status: "skip", detail: "No credential to verify" });
+      updateStep(13, { status: "skip", detail: "No credential to verify" });
     }
 
-    // 12. Credential Integrity — deep-verify hash + signature independently
-    updateStep(12, { status: "running" });
+    // 14. Credential Integrity — deep-verify hash + signature independently
+    updateStep(14, { status: "running" });
     if (firstCredentialId) {
       try {
         const { res, ms } = await timedFetch(`admin/credentials/${firstCredentialId}`);
@@ -312,61 +383,61 @@ export default function QAPage() {
         if (cred.status === "ISSUED" || cred.status === "REVOKED") checks.push(`status:${cred.status}`);
         if (cred.issuerCode) checks.push(`issuer:${cred.issuerCode}`);
         const allGood = cred.hash && cred.signature;
-        updateStep(12, {
+        updateStep(14, {
           status: allGood ? "pass" : "fail",
           detail: checks.join(" | "),
           durationMs: ms,
         });
       } catch (e: unknown) {
-        updateStep(12, { status: "fail", detail: (e as Error).message });
+        updateStep(14, { status: "fail", detail: (e as Error).message });
       }
     } else {
-      updateStep(12, { status: "skip", detail: "No credential to inspect" });
+      updateStep(14, { status: "skip", detail: "No credential to inspect" });
     }
 
-    // 13. Audit Chain
-    updateStep(13, { status: "running" });
+    // 15. Audit Chain
+    updateStep(15, { status: "running" });
     try {
       const { res, ms } = await timedFetch("admin/audit-logs/verify-chain");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const chain = await res.json();
-      updateStep(13, {
+      updateStep(15, {
         status: chain.valid ? "pass" : "fail",
         detail: chain.valid ? `${chain.totalEntries} entries — chain intact` : `Broken at entry ${chain.brokenAt}`,
         durationMs: ms,
       });
     } catch (e: unknown) {
-      updateStep(13, { status: "fail", detail: (e as Error).message });
+      updateStep(15, { status: "fail", detail: (e as Error).message });
     }
 
-    // 14. Analytics
-    updateStep(14, { status: "running" });
+    // 16. Analytics
+    updateStep(16, { status: "running" });
     try {
       const { res, ms } = await timedFetch("admin/analytics");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const a = await res.json();
-      updateStep(14, {
+      updateStep(16, {
         status: "pass",
         detail: `${a.issuedPerDay?.length ?? 0} days tracked, ${Math.round(a.verificationRate ?? 0)}% success rate`,
         durationMs: ms,
       });
     } catch (e: unknown) {
-      updateStep(14, { status: "fail", detail: (e as Error).message });
+      updateStep(16, { status: "fail", detail: (e as Error).message });
     }
 
-    // 15. Audit Export
-    updateStep(15, { status: "running" });
+    // 17. Audit Export
+    updateStep(17, { status: "running" });
     try {
       const { res, ms } = await timedFetch("admin/audit-logs/export");
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const exp = await res.json();
-      updateStep(15, {
+      updateStep(17, {
         status: "pass",
         detail: `${exp.count} entries exported (${exp.filename})`,
         durationMs: ms,
       });
     } catch (e: unknown) {
-      updateStep(15, { status: "fail", detail: (e as Error).message });
+      updateStep(17, { status: "fail", detail: (e as Error).message });
     }
 
     setFinishedAt(Date.now());
@@ -444,7 +515,7 @@ export default function QAPage() {
             <div>
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white">System Health Checklist</h2>
               <p className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
-                Runs 15 sequential checks against all platform endpoints.
+                Runs 17 sequential checks against all platform endpoints.
               </p>
             </div>
             <button
@@ -499,7 +570,7 @@ export default function QAPage() {
         <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
           {steps.map((step, idx) => {
             // Section headers
-            const sectionHeaders: Record<number, string> = { 1: "Infrastructure", 6: "Mock ERP", 9: "Platform Data", 13: "Audit & Analytics" };
+            const sectionHeaders: Record<number, string> = { 1: "Infrastructure", 6: "Mock ERP", 9: "Model A: ERP → Issue", 11: "Platform Data", 15: "Audit & Analytics" };
             const sectionLabel = sectionHeaders[step.id];
             return (
               <div key={step.id}>

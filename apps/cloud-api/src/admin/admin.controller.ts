@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Logger, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Param, Query, Logger, UseGuards, Req, HttpException, HttpStatus } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { Prisma } from '@prisma/client';
@@ -117,6 +117,15 @@ export class AdminController {
       limit,
       totalPages: Math.ceil(total / limit),
     };
+  }
+
+  @Get('credentials/:id')
+  async getCredentialById(@Param('id') id: string) {
+    const credential = await this.prisma.credential.findUnique({ where: { id } });
+    if (!credential) {
+      throw new HttpException('Credential not found', HttpStatus.NOT_FOUND);
+    }
+    return credential;
   }
 
   @Get('analytics')
