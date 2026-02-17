@@ -207,7 +207,7 @@ export default function QAPage() {
         const body = await res.json();
         updateStep(7, {
           status: "pass",
-          detail: `Seeded ${QA_STUDENT.rollNumber} — ${body.upserted ?? 1} upserted`,
+          detail: `Seeded ${QA_STUDENT.rollNumber} — ${body.created ?? 0} created, ${body.updated ?? 0} updated`,
           durationMs: ms,
         });
       } catch (e: unknown) {
@@ -227,8 +227,8 @@ export default function QAPage() {
         const { res, ms } = await timedFetch(`admin/issuers/${firstIssuerCode}/erp/records`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const allRecords = await res.json();
-        const records = Array.isArray(allRecords) ? allRecords : allRecords.data ?? [];
-        const found = records.find((r: { rollNumber: string }) => r.rollNumber.toUpperCase() === QA_STUDENT.rollNumber.toUpperCase());
+        const records = Array.isArray(allRecords) ? allRecords : allRecords.records ?? [];
+        const found = records.find((r: { rollNumber: string }) => r.rollNumber?.trim().toLowerCase() === QA_STUDENT.rollNumber.trim().toLowerCase());
         if (found) {
           updateStep(8, {
             status: "pass",
