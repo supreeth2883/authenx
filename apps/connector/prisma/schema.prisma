@@ -1,0 +1,31 @@
+// Connector ERP Database Schema
+// This is the "Test College ERP" — a real Postgres-backed student records database.
+// In production, this would be replaced by the college's actual ERP/SIS database.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("CONNECTOR_DATABASE_URL")
+}
+
+model ErpStudent {
+  id             String   @id @default(cuid())
+  issuerCode     String   @default("CVR")
+  rollNumber     String
+  name           String
+  degree         String   @default("B.Tech")
+  branch         String   @default("Computer Science")
+  graduationYear Int      @default(2025)
+  cgpa           Float    @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([issuerCode, rollNumber])
+  @@index([issuerCode])
+  @@index([rollNumber])
+  @@map("erp_students")
+}

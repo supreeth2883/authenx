@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
+import { motion, AnimatePresence } from "framer-motion";
 
 /* ── Types ────────────────────────────────────────────────── */
 
@@ -57,7 +58,7 @@ interface IssuedResponse {
   totalPages: number;
 }
 
-type Tab = "issue" | "issued";
+type Tab = "issue" | "erp" | "issued";
 
 const EMPTY_RECORD: StudentRecord = {
   rollNumber: "",
@@ -142,6 +143,18 @@ export default function IssueCredentialsPage() {
   const [issuedPage, setIssuedPage] = useState(1);
   const [issuedSearch, setIssuedSearch] = useState("");
   const [issuedLoading, setIssuedLoading] = useState(false);
+
+  /* ERP issue tab */
+  const [erpRollNumber, setErpRollNumber] = useState("");
+  const [erpLoading, setErpLoading] = useState(false);
+  const [erpError, setErpError] = useState<string | null>(null);
+  const [erpResult, setErpResult] = useState<{
+    credentialId: string;
+    hash: string;
+    signature: string;
+    student: { rollNumber: string; name: string; degree: string; branch: string; graduationYear: number };
+  } | null>(null);
+  const [erpAlreadyIssued, setErpAlreadyIssued] = useState<string | null>(null);
 
   /* ── Auth check ─────────────────────────────────────────── */
   useEffect(() => {
@@ -352,6 +365,38 @@ export default function IssueCredentialsPage() {
     });
   };
 
+  const handleErpIssue = async () => {
+    if (!erpRollNumber.trim()) return;
+    setErpLoading(true);
+    setErpError(null);
+    setErpResult(null);
+    setErpAlreadyIssued(null);
+    try {
+      const res = await fetch("/api/proxy/college/credentials/issue-from-erp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rollNumber: erpRollNumber.trim() }),
+      });
+      if (res.status === 409) {
+        const data = await res.json().catch(() => ({}));
+        const match = (data.message || "").match(/id=([a-zA-Z0-9]+)/);
+        setErpAlreadyIssued(match ? match[1] : data.message || "Already issued");
+        return;
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || `Error ${res.status}`);
+      }
+      const data = await res.json();
+      setErpResult(data);
+      fetchIssued(1, "");
+    } catch (ex: unknown) {
+      setErpError(ex instanceof Error ? ex.message : "Issue failed");
+    } finally {
+      setErpLoading(false);
+    }
+  };
+
   /* ── Render ─────────────────────────────────────────────── */
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-emerald-50 dark:from-slate-950 dark:to-slate-900">
@@ -392,6 +437,16 @@ export default function IssueCredentialsPage() {
             Issue New
           </button>
           <button
+            onClick={() => setActiveTab("erp")}
+            className={`px-5 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${
+              activeTab === "erp"
+                ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                : "text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300"
+            }`}
+          >
+            Issue from ERP
+          </button>
+          <button
             onClick={() => setActiveTab("issued")}
             className={`px-5 py-2 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${
               activeTab === "issued"
@@ -404,9 +459,11 @@ export default function IssueCredentialsPage() {
           </button>
         </div>
 
+        <AnimatePresence>
         {error && (
-          <div className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-300 text-sm">{error}</div>
+          <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-300 text-sm">{error}</motion.div>
         )}
+        </AnimatePresence>
 
         {/* ═══════════════════════ ISSUE TAB ═══════════════════════ */}
         {activeTab === "issue" && (
@@ -628,6 +685,142 @@ export default function IssueCredentialsPage() {
           </>
         )}
 
+        {/* ═══════════════════════ ERP ISSUE TAB ═══════════════════════ */}
+        {activeTab === "erp" && (
+          <div className="space-y-6">
+            <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
+              <h3 className="text-base font-semibold text-slate-900 dark:text-white mb-2">Issue from College ERP</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+                Look up a student in the College ERP database by roll number and issue a signed credential. The ERP record is the source of truth.
+              </p>
+              <div className="flex gap-3 items-end max-w-lg">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Roll Number</label>
+                  <input
+                    type="text"
+                    value={erpRollNumber}
+                    onChange={(e) => { setErpRollNumber(e.target.value); setErpError(null); setErpResult(null); setErpAlreadyIssued(null); }}
+                    onKeyDown={(e) => e.key === "Enter" && handleErpIssue()}
+                    className={inputCls}
+                    placeholder="e.g. 21B81A0501"
+                    disabled={erpLoading}
+                  />
+                </div>
+                <button
+                  onClick={handleErpIssue}
+                  disabled={erpLoading || !erpRollNumber.trim()}
+                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
+                >
+                  {erpLoading ? (
+                    <>
+                      <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Issuing...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m3.75 9v6m3-3H9m1.5-12H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                      </svg>
+                      Issue Credential
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Error */}
+            <AnimatePresence>
+            {erpError && (
+              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-300 text-sm flex items-center gap-3">
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                </svg>
+                {erpError}
+              </motion.div>
+            )}
+            </AnimatePresence>
+
+            {/* Already Issued */}
+            <AnimatePresence>
+            {erpAlreadyIssued && (
+              <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-amber-700 dark:text-amber-300 text-sm flex items-center gap-3">
+                <svg className="w-5 h-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126Z" />
+                </svg>
+                <div>
+                  <p className="font-semibold">Credential already issued</p>
+                  <p className="text-xs mt-0.5 opacity-80">ID: {erpAlreadyIssued}</p>
+                </div>
+              </motion.div>
+            )}
+            </AnimatePresence>
+
+            {/* Success Result */}
+            <AnimatePresence>
+            {erpResult && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 20 }}
+                transition={{ duration: 0.4, ease: "easeOut" }}
+                className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-emerald-200 dark:border-emerald-800 p-6 space-y-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center">
+                    <svg className="w-6 h-6 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h4 className="text-base font-bold text-emerald-800 dark:text-emerald-300">Credential Issued Successfully</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Source of truth: College ERP database</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-0.5">Student</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">{erpResult.student.name}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-0.5">Roll Number</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">{erpResult.student.rollNumber}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold mb-0.5">Degree</p>
+                    <p className="text-sm font-medium text-slate-900 dark:text-white">{erpResult.student.degree} — {erpResult.student.branch}</p>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-500">Credential ID</span>
+                    <button onClick={() => copyToClipboard(erpResult.credentialId, "erp-id")} className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 cursor-pointer">
+                      {copiedId === "erp-id" ? "Copied!" : "Copy"}
+                    </button>
+                  </div>
+                  <p className="font-mono text-sm text-slate-900 dark:text-white break-all">{erpResult.credentialId}</p>
+                  <div className="flex gap-2 text-xs text-slate-400">
+                    <span>Hash: {erpResult.hash?.slice(0, 16)}...</span>
+                    <span>Sig: {erpResult.signature?.slice(0, 16)}...</span>
+                  </div>
+                </div>
+
+                {/* QR Code */}
+                <div className="flex justify-center pt-2">
+                  <div className="text-center">
+                    <QRCodeSVG value={`authenx:${erpResult.credentialId}`} size={160} />
+                    <p className="text-xs text-slate-400 mt-2">Scan to verify credential</p>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+            </AnimatePresence>
+          </div>
+        )}
+
         {/* ═══════════════════════ ISSUED TAB ═══════════════════════ */}
         {activeTab === "issued" && (
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
@@ -784,9 +977,10 @@ export default function IssueCredentialsPage() {
       </main>
 
       {/* QR Modal */}
+      <AnimatePresence>
       {qrModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setQrModal(null)}>
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-sm mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setQrModal(null)}>
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-sm mx-4 p-6" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-bold text-slate-900 dark:text-white text-center mb-2">Credential QR</h3>
             <p className="text-sm text-slate-500 dark:text-slate-400 text-center mb-6">{qrModal.name}</p>
             <div className="flex justify-center mb-6" id="qr-modal-svg">
@@ -820,14 +1014,16 @@ export default function IssueCredentialsPage() {
                 Close
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {/* Revoke Confirmation Modal */}
+      <AnimatePresence>
       {revokeModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => { setRevokeModal(null); setRevokeReason(""); setRevokeError(null); }}>
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-red-200 dark:border-red-800 w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => { setRevokeModal(null); setRevokeReason(""); setRevokeError(null); }}>
+          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-red-200 dark:border-red-800 w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-950 flex items-center justify-center flex-shrink-0">
                 <svg className="w-5 h-5 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -882,9 +1078,10 @@ export default function IssueCredentialsPage() {
                 )}
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }

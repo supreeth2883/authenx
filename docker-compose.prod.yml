@@ -9,6 +9,7 @@ services:
       POSTGRES_DB: ${DB_NAME:-authenx}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-connector-db.sql:/docker-entrypoint-initdb.d/init-connector-db.sql
     ports:
       - "${DB_PORT:-5433}:5432"
     healthcheck:
@@ -59,6 +60,7 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
       CONNECTOR_URL: http://connector:3002
+      CONNECTOR_ADMIN_KEY: ${CONNECTOR_ADMIN_KEY:-dev-admin-key}
     ports:
       - "3001:3001"
     networks:
@@ -77,11 +79,17 @@ services:
     container_name: authenx-connector-prod
     restart: always
     depends_on:
-      - cloud-api
+      postgres:
+        condition: service_healthy
+      cloud-api:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: 3002
       CLOUD_API_URL: ${CLOUD_API_URL:-http://cloud-api:3001}
+      CONNECTOR_DATABASE_URL: postgresql://${DB_USER:-authenx}:${DB_PASSWORD:-authenx_local_secure_pwd_123}@postgres:5432/authenx_connector
+      ISSUER_CODE: ${ISSUER_CODE:-TEST-COLLEGE}
+      CONNECTOR_ADMIN_KEY: ${CONNECTOR_ADMIN_KEY:-dev-admin-key}
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - "3002:3002"

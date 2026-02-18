@@ -141,6 +141,93 @@ export class CollegeCredentialsController {
     });
   }
 
+  /**
+   * POST /college/credentials/issue-from-erp — single-student ERP issue
+   * Looks up student from connector ERP by rollNumber, then issues credential.
+   * Body: { rollNumber: string }
+   */
+  @Post('issue-from-erp')
+  async issueFromErp(
+    @Body() body: { rollNumber?: string },
+    @Req() req: Request,
+  ) {
+    const user = (req as any).user;
+    const issuerCode = user?.issuerCode;
+    if (!issuerCode) {
+      throw new HttpException('User has no associated issuerCode', HttpStatus.FORBIDDEN);
+    }
+    if (!body?.rollNumber?.trim()) {
+      throw new HttpException('rollNumber is required', HttpStatus.BAD_REQUEST);
+    }
+
+    const issuer = await this.issuersService.findByCode(issuerCode);
+    if (!issuer) {
+      throw new HttpException(`Issuer "${issuerCode}" not found`, HttpStatus.NOT_FOUND);
+    }
+
+    const adminKey = process.env.CONNECTOR_ADMIN_KEY;
+    if (!adminKey) {
+      throw new HttpException('CONNECTOR_ADMIN_KEY not configured', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    // 1. Lookup student from connector ERP
+    let student: { rollNumber: string; name: string; degree: string; branch: string; graduationYear: number; cgpa: number };
+    try {
+      const res = await fetch(
+        `${issuer.connectorBaseUrl}/erp/admin/lookup/${encodeURIComponent(body.rollNumber.trim())}`,
+        {
+          headers: { Authorization: `Bearer ${adminKey}` },
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      if (res.status === 404) {
+        throw new HttpException(
+          `Student "${body.rollNumber}" not found in ERP database.`,
+          HttpStatus.NOT_FOUND,
+        );
+      }
+      if (!res.ok) {
+        throw new Error(`Connector returned HTTP ${res.status}`);
+      }
+      student = (await res.json()) as typeof student;
+    } catch (err) {
+      if (err instanceof HttpException) throw err;
+      throw new HttpException(
+        `Failed to lookup student from ERP: ${(err as Error).message}`,
+        HttpStatus.BAD_GATEWAY,
+      );
+    }
+
+    this.logger.log(`[ISSUE-FROM-ERP] Issuing for ${student.rollNumber} (${student.name}) via ${issuerCode}`);
+
+    // 2. Issue credential using ERP data as source of truth
+    try {
+      const result = await this.credentialsService.issue({
+        issuerCode,
+        name: student.name,
+        rollNumber: student.rollNumber,
+        degree: student.degree,
+        branch: student.branch,
+        graduationYear: student.graduationYear,
+        cgpa: student.cgpa,
+      });
+      return {
+        ...result,
+        student: {
+          rollNumber: student.rollNumber,
+          name: student.name,
+          degree: student.degree,
+          branch: student.branch,
+          graduationYear: student.graduationYear,
+        },
+      };
+    } catch (err) {
+      const message = (err as any)?.response?.message ?? (err as Error).message;
+      const status = (err as any)?.status ?? HttpStatus.INTERNAL_SERVER_ERROR;
+      throw new HttpException(message, status);
+    }
+  }
+
   @Post('publish')
   async publish(
     @Body() dto: PublishCredentialsDto,

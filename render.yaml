@@ -9,6 +9,10 @@ databases:
     plan: free
     databaseName: authenx
     user: authenx
+  - name: authenx-connector-db
+    plan: free
+    databaseName: authenx_connector
+    user: authenx_connector
 
 services:
   # ── Redis ───────────────────────────────────────────────────────
@@ -68,9 +72,11 @@ services:
       - key: CLOUD_API_URL
         value: https://authenx-cloud-api.onrender.com
       - key: ISSUER_CODE
-        value: CVR
-      - key: MOCK_ERP_ADMIN_MODE
-        value: disabled
+        value: TEST-COLLEGE
+      - key: CONNECTOR_DATABASE_URL
+        fromDatabase:
+          name: authenx-connector-db
+          property: connectionString
       - key: CONNECTOR_ADMIN_KEY
         sync: false  # Must match cloud-api CONNECTOR_ADMIN_KEY — set manually
       - key: LOG_LEVEL

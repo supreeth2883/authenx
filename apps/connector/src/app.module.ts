@@ -5,9 +5,10 @@ import { KeysModule } from './keys/keys.module.js';
 import { PingModule } from './ping/ping.module.js';
 import { SignModule } from './sign/sign.module.js';
 import { ErpModule } from './erp/erp.module.js';
+import { PrismaModule } from './prisma/prisma.module.js';
 
 @Module({
-  imports: [KeysModule, PingModule, SignModule, ErpModule],
+  imports: [PrismaModule, KeysModule, PingModule, SignModule, ErpModule],
   controllers: [AppController],
   providers: [AppService],
 })
