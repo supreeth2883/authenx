@@ -36,7 +36,10 @@ RUN echo "node-linker=hoisted" > .npmrc && \
 COPY apps/connector apps/connector
 
 # Generate Prisma client and build NestJS application
-RUN cd apps/connector && npx prisma generate && /app/node_modules/.bin/nest build && cp -r src/generated dist/
+# nest build compiles src/ → dist/src/; the generated Prisma client
+# (pure JS, not TS) must sit next to the compiled output so that
+# dist/src/prisma/prisma.service.js can resolve '../generated/prisma'
+RUN cd apps/connector && npx prisma generate && /app/node_modules/.bin/nest build && cp -r src/generated dist/src/
 
 # ── Stage 2: Runtime ────────────────────────────────────────────────
 FROM node:22-alpine
