@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Param, ParseIntPipe, Query, Optional } from '@nestjs/common';
+import { Controller, Get, Post, Param, ParseIntPipe, Query, Optional, UseGuards } from '@nestjs/common';
 import { KeysService } from './keys.service.js';
+import { AdminKeyGuard } from '../guards/admin-key.guard.js';
 
 @Controller()
 export class KeysController {
@@ -28,6 +29,7 @@ export class KeysController {
   }
 
   @Post('rotate-key')
+  @UseGuards(AdminKeyGuard)
   rotateKey() {
     const issuerCode = process.env.ISSUER_CODE ?? 'CVR';
     const result = this.keysService.rotateKey();

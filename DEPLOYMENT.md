@@ -124,13 +124,18 @@ echo ".env.production" >> .gitignore
 
 #### Option A: Using Render Dashboard (Recommended)
 
-1. **Create PostgreSQL Database**
+1. **Create PostgreSQL Database (cloud-api)**
    - Go to Render.com → New → PostgreSQL
    - Name: `authenx-db`
    - Configuration: At least 1GB RAM
    - Copy connection string (add to Dashboard secrets)
 
-2. **Create Redis Instance**
+2. **Create PostgreSQL Database (connector)**
+   - Go to Render.com → New → PostgreSQL
+   - Name: `authenx-connector-db`
+   - Used by the connector's ERP module (Prisma)
+
+3. **Create Redis Instance**
    - Go to Render.com → New → Redis
    - Name: `authenx-redis`
    - Copy connection string
@@ -138,22 +143,49 @@ echo ".env.production" >> .gitignore
 3. **Create cloud-api Service**
    - New → Web Service
    - Repository: Select your repo
-   - Build Command: `docker build -f apps/cloud-api/Dockerfile.prod -t authenx-cloud-api .`
-   - Start Command: `node dist/src/main.js`
+   - Runtime: Docker
+   - Dockerfile Path: `apps/cloud-api/Dockerfile.prod`
+   - Docker Context: `.` (repo root)
+   - Health Check Path: `/`
    - Environment Variables:
      ```
      NODE_ENV=production
      DATABASE_URL=<postgres_url_from_step_1>
      REDIS_URL=<redis_url_from_step_2>
      JWT_SECRET=<generate_secure_key>
-     CORS_ORIGIN=https://yourdomain.com
+     CORS_ORIGIN=https://authenx-web.onrender.com
+     CONNECTOR_URL=https://authenx-connector.onrender.com
+     CONNECTOR_ADMIN_KEY=<strong_shared_secret_64_chars>
      ```
 
 4. **Create connector Service**
-   - Similar to cloud-api
-   - Build Command: `docker build -f apps/connector/Dockerfile.prod -t authenx-connector .`
-   - Start Command: `node dist/main.js`
-   - CLOUD_API_URL=<cloud-api_internal_url>
+   - New → Web Service
+   - Runtime: Docker
+   - Dockerfile Path: `apps/connector/Dockerfile.prod`
+   - Docker Context: `.` (repo root)
+   - Health Check Path: `/`
+   - Environment Variables:
+     ```
+     NODE_ENV=production
+     CLOUD_API_URL=https://authenx-cloud-api.onrender.com
+     CONNECTOR_DATABASE_URL=<postgres_url_from_step_2>
+     ISSUER_CODE=TEST-COLLEGE
+     CONNECTOR_ADMIN_KEY=<MUST_MATCH_cloud-api_CONNECTOR_ADMIN_KEY>
+     LOG_LEVEL=info
+     ```
+   > **Build-time vs runtime:** The Dockerfile supplies a dummy
+   > `CONNECTOR_DATABASE_URL` at build time so `prisma generate` passes.
+   > At runtime, Render injects the real connection string from the
+   > `authenx-connector-db` database (via `render.yaml` `fromDatabase`
+   > or manually in the Dashboard).
+   >
+   > **CONNECTOR_ADMIN_KEY:** Must be the **exact same value** on both
+   > cloud-api and connector. Copy the generated value from cloud-api's
+   > env vars in the Render Dashboard and paste it into connector's.
+   >
+   > **Port binding:** The connector listens on `process.env.PORT`
+   > (injected by Render) on `0.0.0.0`. No `PORT` env var is needed —
+   > Render sets it automatically.
 
 5. **Create web Service**
    - New → Static Site (or Web Service for Next.js)
@@ -167,6 +199,67 @@ echo ".env.production" >> .gitignore
 6. **Set up DNS**
    - Add custom domain pointing to Render
    - Enable automatic certificates
+
+#### Option B: Using render.yaml Blueprint (Fastest)
+
+The repo includes a `render.yaml` Blueprint that auto-creates all resources:
+
+```bash
+# 1. Push code to GitHub
+git push origin main
+
+# 2. Go to Render Dashboard → Blueprints → New Blueprint Instance
+#    Select this repo → Render creates everything automatically:
+#    - authenx-db            (PostgreSQL, free)
+#    - authenx-connector-db  (PostgreSQL, free)
+#    - authenx-redis         (Redis, free)
+#    - authenx-cloud-api     (Web Service, Docker)
+#    - authenx-connector     (Web Service, Docker)
+#    - authenx-web           (Web Service, Docker)
+
+# 3. MANUAL STEP — sync CONNECTOR_ADMIN_KEY:
+#    - Go to authenx-cloud-api → Environment → copy CONNECTOR_ADMIN_KEY value
+#    - Go to authenx-connector → Environment → set CONNECTOR_ADMIN_KEY to same value
+#    - Redeploy authenx-connector
+
+# 4. Wait for all services to deploy (5–10 min on free tier)
+```
+
+**Render resources created by render.yaml:**
+
+| Resource | Type | Name | Purpose |
+|---|---|---|---|
+| Database | PostgreSQL | `authenx-db` | cloud-api (users, credentials, audit) |
+| Database | PostgreSQL | `authenx-connector-db` | connector ERP (student records) |
+| Cache | Redis | `authenx-redis` | Rate limiting, sessions |
+| Service | Web (Docker) | `authenx-cloud-api` | Backend API |
+| Service | Web (Docker) | `authenx-connector` | Signing + ERP service |
+| Service | Web (Docker) | `authenx-web` | Next.js frontend |
+
+### Step 3: Quick Smoke Test After Deploy
+
+```bash
+BASE=https://authenx-cloud-api.onrender.com
+CONN=https://authenx-connector.onrender.com
+WEB=https://authenx-web.onrender.com
+
+# 1. Health checks (should return 200)
+curl -s $CONN/
+curl -s $CONN/erp/health
+curl -s $BASE/
+
+# 2. Web frontend loads
+curl -s -o /dev/null -w "%{http_code}" $WEB/login  # → 200
+
+# 3. Connector security — must return 401, NOT 200
+curl -s -w "\n%{http_code}" -X POST $CONN/sign \
+  -H "Content-Type: application/json" -d '{"payload":"test"}'
+
+# 4. Login as super admin
+curl -s -X POST $BASE/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@authenx.io","password":"Admin@2026"}'
+```
 
 ---
 
@@ -263,9 +356,12 @@ kubectl apply -f k8s/
 
 - [ ] Change all default passwords
 - [ ] Generate strong JWT_SECRET (minimum 32 characters)
+- [ ] Generate strong CONNECTOR_ADMIN_KEY (minimum 32 characters) — **must match on cloud-api and connector**
 - [ ] Use environment variables for all secrets (never in code)
 - [ ] Enable SSL/TLS certificates
 - [ ] Set CORS_ORIGIN to exact domain (no wildcards)
+- [ ] Verify connector `/sign`, `/rotate-key`, `/ping`, `/erp/validate-student`, `/erp/publish-results` return 401 without valid bearer token
+- [ ] Only `/`, `/erp/health`, `/public-key`, `/public-keys` are publicly accessible on the connector
 - [ ] Enable database encryption at rest
 - [ ] Enable Redis AUTH password
 - [ ] Use VPC/private networking where possible
@@ -290,6 +386,7 @@ JWT_EXPIRATION=86400
 CORS_ORIGIN=https://yourdomain.com
 LOG_LEVEL=info
 CONNECTOR_URL=http://connector:3002
+CONNECTOR_ADMIN_KEY=<generate_secure_64+_char_key>
 ```
 
 ### connector/.env.production
@@ -298,6 +395,9 @@ CONNECTOR_URL=http://connector:3002
 NODE_ENV=production
 PORT=3002
 CLOUD_API_URL=http://cloud-api:3001
+CONNECTOR_DATABASE_URL=postgresql://<user>:<password>@<host>:<port>/authenx_connector
+CONNECTOR_ADMIN_KEY=<must_match_cloud-api>
+ISSUER_CODE=TEST-COLLEGE
 LOG_LEVEL=info
 ```
 
@@ -478,3 +578,179 @@ For issues or questions:
 3. Review health checks: `docker-compose -f docker-compose.prod.yml ps`
 4. Check system resources: `docker stats`
 5. Review Render/Railway/AWS deployment logs
+
+---
+
+## E2E Smoke Test — Model A (College → Employer → Super Admin)
+
+Run this checklist after every deployment to confirm the full credential
+lifecycle works end-to-end.
+
+### Prerequisites
+
+```bash
+# Set base URLs (adjust for your deployment)
+BASE=https://authenx-cloud-api.onrender.com
+CONN=https://authenx-connector.onrender.com
+WEB=https://authenx-web.onrender.com
+```
+
+### Phase 0 — Health & Security
+
+```bash
+# Connector root health (public, 200)
+curl -sf $CONN/              # → "Hello World!"
+curl -sf $CONN/erp/health    # → {"status":"ok", ...}
+
+# Public keys (public, 200) — these ARE public by design
+curl -sf $CONN/public-key    # → {"issuerCode":"TEST-COLLEGE","publicKeyEd25519":"..."}
+
+# Protected routes WITHOUT admin key → expect 401
+curl -s -o /dev/null -w "%{http_code}" -X POST $CONN/sign \
+  -H "Content-Type: application/json" -d '{"payload":"test"}'
+# → 401
+
+curl -s -o /dev/null -w "%{http_code}" -X POST $CONN/rotate-key
+# → 401
+
+curl -s -o /dev/null -w "%{http_code}" -X POST $CONN/erp/validate-student \
+  -H "Content-Type: application/json" -d '{}'
+# → 401
+```
+
+### Phase 1 — Super Admin Setup
+
+**UI path:** `$WEB/login` → email: `admin@authenx.io`, password: `Admin@2026`
+
+```bash
+# 1. Login as super admin
+ADMIN_TOKEN=$(curl -sf -X POST $BASE/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@authenx.io","password":"Admin@2026"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# 2. Register issuer (if not already done)
+curl -sf -X POST $BASE/admin/issuers/register \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"issuerCode":"TEST-COLLEGE","name":"Test College","connectorBaseUrl":"'$CONN'"}'
+# → 201 or 409 (already registered)
+
+# 3. Seed ERP with sample students
+curl -sf -X POST $BASE/admin/issuers/TEST-COLLEGE/erp/upsert-batch \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"records":[
+    {"rollNumber":"22B81A0501","name":"Alice Johnson","degree":"B.Tech","branch":"Computer Science","graduationYear":2026,"cgpa":9.1},
+    {"rollNumber":"22B81A0502","name":"Bob Smith","degree":"B.Tech","branch":"Electronics","graduationYear":2026,"cgpa":8.5}
+  ]}'
+# → 200 with upserted count
+```
+
+**UI path:** `$WEB/admin` → Issuers tab → Register Issuer / Seed ERP
+
+### Phase 2 — College Issues Credential
+
+**UI path:** `$WEB/login` → college admin credentials → `$WEB/college/issue`
+
+```bash
+# 1. Login as college admin
+COLLEGE_TOKEN=$(curl -sf -X POST $BASE/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"college@cvr.edu","password":"College@2026"}' \
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+# 2. Issue credential from ERP by roll number
+ISSUE_RESULT=$(curl -sf -X POST $BASE/college/credentials/issue-from-erp \
+  -H "Authorization: Bearer $COLLEGE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"rollNumber":"22B81A0501"}')
+echo "$ISSUE_RESULT"
+# → {"credentialId":"clx...","hash":"...","signature":"...","keyVersion":1,...}
+
+CRED_ID=$(echo "$ISSUE_RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin)['credentialId'])")
+echo "Credential ID: $CRED_ID"
+```
+
+**UI path:** `$WEB/college/issue` → enter roll number → click "Issue from ERP"
+→ credential card appears with QR code
+
+### Phase 3 — Employer Verifies Credential
+
+**UI path:** `$WEB/employer`
+
+#### Option A: Verify by credential ID
+
+```bash
+# Verify credential (no auth required — public verification endpoint)
+curl -sf $BASE/credentials/$CRED_ID/verify
+# → {"credentialId":"...","verification":{"hashValid":true,"signatureValid":true,"verified":true,...}}
+```
+
+**UI path:** `$WEB/employer` → paste credential ID → click Verify
+→ green "Verified" card with student details
+
+#### Option B: QR code scanning
+
+1. Open `$WEB/employer` on a phone
+2. Click "Scan QR Code"
+3. Point camera at the QR code shown on the college issue page
+4. QR payload is `authenx:<credentialId>` — app auto-verifies
+
+#### Option C: Image upload fallback
+
+1. Screenshot the QR code from the college issue page
+2. Open `$WEB/employer` → click "Upload QR Image"
+3. Select the screenshot → auto-verifies
+
+**Expected result:** All three methods show the same verified credential card.
+
+### Phase 4 — Super Admin Sees Analytics & Audit
+
+**UI path:** `$WEB/admin`
+
+```bash
+# 1. Dashboard stats
+curl -sf $BASE/admin/dashboard \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+# → {"totalCredentials":N,"totalVerifications":M,...}
+
+# 2. Audit log (latest entries)
+curl -sf "$BASE/admin/audit?limit=5" \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
+# → entries with action=CREDENTIAL_ISSUED, CREDENTIAL_VERIFIED, etc.
+```
+
+**UI path:**
+- `$WEB/admin` → stat cards show credential count, verification count
+- `$WEB/admin/audit` → table shows issuance + verification events
+- `$WEB/admin/qa` → QA summary bar
+
+### Phase 5 — Revocation (Optional)
+
+```bash
+# Revoke the credential (college admin)
+curl -sf -X PATCH $BASE/college/credentials/$CRED_ID/revoke \
+  -H "Authorization: Bearer $COLLEGE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"Test revocation"}'
+# → {"status":"REVOKED",...}
+
+# Re-verify — should show revoked
+curl -sf $BASE/credentials/$CRED_ID/verify
+# → {"verification":{"verified":true,"revoked":true,...}}
+```
+
+### Summary of Expected Status Codes
+
+| Step | Endpoint | Method | Expected |
+|---|---|---|---|
+| Health | `GET /` (connector) | GET | 200 |
+| Security | `POST /sign` (no auth) | POST | 401 |
+| Login | `POST /auth/login` | POST | 201 |
+| Register issuer | `POST /admin/issuers/register` | POST | 201 / 409 |
+| Seed ERP | `POST /admin/issuers/:code/erp/upsert-batch` | POST | 200 |
+| Issue credential | `POST /college/credentials/issue-from-erp` | POST | 201 |
+| Verify | `GET /credentials/:id/verify` | GET | 200 |
+| Audit log | `GET /admin/audit` | GET | 200 |
+| Revoke | `PATCH /college/credentials/:id/revoke` | PATCH | 200 |

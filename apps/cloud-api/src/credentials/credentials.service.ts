@@ -67,11 +67,19 @@ export class CredentialsService {
     const signUrl = `${issuer.connectorBaseUrl}/sign`;
     this.logger.log(`Requesting signature from ${signUrl}`);
 
+    const adminKey = process.env.CONNECTOR_ADMIN_KEY;
+    if (!adminKey) {
+      throw new HttpException('CONNECTOR_ADMIN_KEY not configured', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
     let signatureResponse: { signature: string; keyVersion: number };
     try {
       const res = await fetch(signUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminKey}`,
+        },
         body: JSON.stringify({ payload: canonicalJson }),
       });
       if (!res.ok) {

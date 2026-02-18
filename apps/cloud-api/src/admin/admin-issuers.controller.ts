@@ -215,6 +215,11 @@ export class AdminIssuersController {
     try {
       const res = await fetch(`${issuer.connectorBaseUrl}/erp/admin/status`, {
         signal: AbortSignal.timeout(10_000),
+        headers: {
+          ...(process.env.CONNECTOR_ADMIN_KEY
+            ? { Authorization: `Bearer ${process.env.CONNECTOR_ADMIN_KEY}` }
+            : {}),
+        },
       });
       if (!res.ok) {
         throw new Error(`Connector returned HTTP ${res.status}`);

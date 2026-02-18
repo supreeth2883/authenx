@@ -116,9 +116,17 @@ export class IssuersService {
     const rotateUrl = `${issuer.connectorBaseUrl}/rotate-key`;
     this.logger.log(`Rotating key for ${issuerCode} via ${rotateUrl}`);
 
+    const adminKey = process.env.CONNECTOR_ADMIN_KEY;
+    if (!adminKey) {
+      throw new HttpException('CONNECTOR_ADMIN_KEY not configured', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
     let rotateResponse: { newVersion: number; publicKey: string };
     try {
-      const res = await fetch(rotateUrl, { method: 'POST' });
+      const res = await fetch(rotateUrl, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${adminKey}` },
+      });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }

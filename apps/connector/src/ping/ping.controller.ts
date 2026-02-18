@@ -1,5 +1,6 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { KeysService } from '../keys/keys.service.js';
+import { AdminKeyGuard } from '../guards/admin-key.guard.js';
 
 type PingBody = {
   nonce: string;
@@ -7,6 +8,7 @@ type PingBody = {
 };
 
 @Controller()
+@UseGuards(AdminKeyGuard)
 export class PingController {
   constructor(private readonly keysService: KeysService) {}
 

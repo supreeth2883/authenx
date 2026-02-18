@@ -32,7 +32,12 @@ export class VerifyService {
     try {
       response = await fetch(pingUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(process.env.CONNECTOR_ADMIN_KEY
+            ? { Authorization: `Bearer ${process.env.CONNECTOR_ADMIN_KEY}` }
+            : {}),
+        },
         body: JSON.stringify({ nonce, ts }),
       });
     } catch (err) {

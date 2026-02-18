@@ -1,5 +1,6 @@
-import { Controller, Post, Get, Delete, Body, Param, Query, Headers, Logger, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Body, Param, Query, Headers, Logger, HttpException, HttpStatus, UseGuards } from '@nestjs/common';
 import { ErpService } from './erp.service.js';
+import { AdminKeyGuard } from '../guards/admin-key.guard.js';
 
 interface UpsertStudentBody {
   rollNumber: string;
@@ -47,6 +48,7 @@ export class ErpController {
   }
 
   @Get('admin/status')
+  @UseGuards(AdminKeyGuard)
   getAdminStatus() {
     return { erpDatabase: 'postgres', adminKeyConfigured: !!this.adminKey };
   }
@@ -54,12 +56,14 @@ export class ErpController {
   /* ── Existing endpoints (called by cloud-api) ──────────────── */
 
   @Post('publish-results')
+  @UseGuards(AdminKeyGuard)
   async publishResults() {
     this.logger.log('Publishing ERP results to cloud-api...');
     return this.erpService.publishResults();
   }
 
   @Post('validate-student')
+  @UseGuards(AdminKeyGuard)
   async validateStudent(@Body() body: ValidateStudentBody) {
     this.logger.log(`Validating student ${body.rollNumber}`);
     return this.erpService.validateStudent(body);

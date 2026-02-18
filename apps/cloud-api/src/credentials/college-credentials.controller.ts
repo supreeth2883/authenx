@@ -354,11 +354,15 @@ export class CollegeCredentialsController {
     diff?: Record<string, unknown>;
   }> {
     const url = `${connectorBaseUrl}/erp/validate-student`;
+    const adminKey = process.env.CONNECTOR_ADMIN_KEY;
 
     try {
       const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(adminKey ? { Authorization: `Bearer ${adminKey}` } : {}),
+        },
         body: JSON.stringify({
           issuerCode,
           rollNumber: record.rollNumber,

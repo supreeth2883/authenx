@@ -1,7 +1,9 @@
-import { Controller, Post, Body, Logger } from '@nestjs/common';
+import { Controller, Post, Body, Logger, UseGuards } from '@nestjs/common';
 import { KeysService } from '../keys/keys.service.js';
+import { AdminKeyGuard } from '../guards/admin-key.guard.js';
 
 @Controller('sign')
+@UseGuards(AdminKeyGuard)
 export class SignController {
   private readonly logger = new Logger(SignController.name);
 

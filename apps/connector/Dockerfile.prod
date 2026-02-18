@@ -23,6 +23,11 @@ RUN echo "node-linker=hoisted" > .npmrc && \
 # Copy connector source
 COPY apps/connector apps/connector
 
+# Prisma generate needs a valid DATABASE_URL at schema-validation time,
+# but does NOT open a connection. Supply a dummy so the build succeeds
+# on Render (real URL is injected at runtime via envVars / render.yaml).
+ENV CONNECTOR_DATABASE_URL="postgresql://build:build@localhost:5432/build"
+
 # Generate Prisma client and build NestJS application
 RUN cd apps/connector && npx prisma generate && /app/node_modules/.bin/nest build && cp -r src/generated dist/
 
