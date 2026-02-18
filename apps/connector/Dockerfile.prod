@@ -67,6 +67,19 @@ USER nodejs
 
 EXPOSE 10000
 
-# Start server: run migrations then start NestJS
-# Render automatically injects PORT env var; app listens on 0.0.0.0:$PORT
-CMD ["sh", "-c", "npx prisma migrate deploy --schema=prisma/schema.prisma && node dist/main.js"]
+# Start server: attempt migrations, then start NestJS regardless.
+# If CONNECTOR_DATABASE_URL is missing or DB is unreachable, migrations
+# will fail but the HTTP server will still bind the port so Render's
+# health check passes. The app will log errors on first DB query.
+CMD ["sh", "-c", "\
+  if [ -n \"$CONNECTOR_DATABASE_URL\" ]; then \
+    echo '==> Running Prisma migrations...' && \
+    npx prisma migrate deploy --schema=prisma/schema.prisma || \
+    echo '==> WARNING: prisma migrate deploy failed — check CONNECTOR_DATABASE_URL'; \
+  else \
+    echo '==> WARNING: CONNECTOR_DATABASE_URL is not set — skipping migrations'; \
+    echo '==> Set it in Render Dashboard: authenx-connector → Environment → CONNECTOR_DATABASE_URL'; \
+  fi && \
+  echo \"==> Starting connector on port ${PORT:-10000}...\" && \
+  exec node dist/main.js \
+"]
