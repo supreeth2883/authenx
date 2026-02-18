@@ -3,13 +3,11 @@ npm-debug.log
 **/dist
 **/build
 **/.next
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+**/.env
+**/.env.*
+!**/.env.production.template
 .git
 .gitignore
 .DS_Store
 *.md
-.env
 *.log

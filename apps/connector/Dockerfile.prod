@@ -6,8 +6,20 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
+# Prisma needs OpenSSL for engine detection on Alpine (musl)
+RUN apk add --no-cache openssl
+
 # Install pnpm
 RUN npm install -g pnpm@9
+
+# ── Build-time dummy DATABASE_URL ──────────────────────────────────
+# Prisma schema validation (prisma generate / prisma validate) requires
+# env("CONNECTOR_DATABASE_URL") to be resolvable. Render injects the
+# real URL only at runtime, so we supply a harmless placeholder here.
+# This is NEVER used for actual connections — it only satisfies Prisma's
+# schema parser. Set it BEFORE pnpm install to also cover any
+# @prisma/client postinstall lifecycle script.
+ENV CONNECTOR_DATABASE_URL="postgresql://build:build@localhost:5432/build"
 
 # Copy workspace dependency-resolution files
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
@@ -20,21 +32,19 @@ RUN echo "node-linker=hoisted" > .npmrc && \
     echo "shamefully-hoist=true" >> .npmrc && \
     pnpm install --frozen-lockfile
 
-# Copy connector source
+# Copy connector source (no .env files — excluded by .dockerignore)
 COPY apps/connector apps/connector
-
-# Prisma generate needs a valid DATABASE_URL at schema-validation time,
-# but does NOT open a connection. Supply a dummy so the build succeeds
-# on Render (real URL is injected at runtime via envVars / render.yaml).
-ENV CONNECTOR_DATABASE_URL="postgresql://build:build@localhost:5432/build"
 
 # Generate Prisma client and build NestJS application
 RUN cd apps/connector && npx prisma generate && /app/node_modules/.bin/nest build && cp -r src/generated dist/
 
-# Stage 2: Runtime
+# ── Stage 2: Runtime ────────────────────────────────────────────────
 FROM node:22-alpine
 
 WORKDIR /app
+
+# Prisma query engine needs OpenSSL at runtime on Alpine
+RUN apk add --no-cache openssl
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
@@ -46,11 +56,8 @@ COPY --from=builder --chown=nodejs:nodejs /app/apps/connector/package.json ./pac
 # Copy built output
 COPY --from=builder --chown=nodejs:nodejs /app/apps/connector/dist ./dist
 
-# Copy Prisma schema (needed at runtime for prisma migrate deploy)
+# Copy Prisma schema + migrations (needed at runtime for prisma migrate deploy)
 COPY --from=builder --chown=nodejs:nodejs /app/apps/connector/prisma ./prisma
-
-# Copy generated Prisma client (custom output to src/generated/prisma, compiled to dist)
-# The generated client is already included in dist via NestJS build
 
 # KeysService writes to /app/.data at runtime — create with correct ownership
 RUN mkdir -p /app/.data && chown nodejs:nodejs /app/.data
@@ -58,11 +65,8 @@ RUN mkdir -p /app/.data && chown nodejs:nodejs /app/.data
 # Switch to non-root user
 USER nodejs
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD node -e "const h=require('http');h.get('http://localhost:3002/',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))"
+EXPOSE 10000
 
-EXPOSE 3002
-
-# Start server (run migrations on boot)
+# Start server: run migrations then start NestJS
+# Render automatically injects PORT env var; app listens on 0.0.0.0:$PORT
 CMD ["sh", "-c", "npx prisma migrate deploy --schema=prisma/schema.prisma && node dist/main.js"]
