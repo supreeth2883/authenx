@@ -19,6 +19,7 @@ import { RolesGuard } from '../auth/guards/roles.guard.js';
 import { Roles } from '../auth/decorators/roles.decorator.js';
 import { UserRole } from '@prisma/client';
 import { PublishCredentialsDto, StudentRecordDto } from './dto/publish-credentials.dto.js';
+import { ThrottleVerify } from '../throttle/throttle.decorators.js';
 import type { Request } from 'express';
 
 interface PublishResult {
@@ -147,6 +148,7 @@ export class CollegeCredentialsController {
    * Body: { rollNumber: string }
    */
   @Post('issue-from-erp')
+  @ThrottleVerify()
   async issueFromErp(
     @Body() body: { rollNumber?: string },
     @Req() req: Request,
@@ -184,6 +186,12 @@ export class CollegeCredentialsController {
         throw new HttpException(
           `Student "${body.rollNumber}" not found in ERP database.`,
           HttpStatus.NOT_FOUND,
+        );
+      }
+      if (res.status === 401 || res.status === 403) {
+        throw new HttpException(
+          'Admin key missing or invalid for connector ERP endpoint.',
+          HttpStatus.UNAUTHORIZED,
         );
       }
       if (!res.ok) {
@@ -229,6 +237,7 @@ export class CollegeCredentialsController {
   }
 
   @Post('publish')
+  @ThrottleVerify()
   async publish(
     @Body() dto: PublishCredentialsDto,
     @Req() req: Request,

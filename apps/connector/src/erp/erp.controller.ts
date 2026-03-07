@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Delete, Body, Param, Query, Headers, Logger, HttpException, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Delete, Body, Param, Query, Logger, HttpException, HttpStatus, UseGuards } from '@nestjs/common';
 import { ErpService } from './erp.service.js';
 import { AdminKeyGuard } from '../guards/admin-key.guard.js';
 
@@ -24,21 +24,8 @@ interface ValidateStudentBody {
 @Controller('erp')
 export class ErpController {
   private readonly logger = new Logger(ErpController.name);
-  private readonly adminKey = process.env.CONNECTOR_ADMIN_KEY || '';
 
   constructor(private readonly erpService: ErpService) {}
-
-  /* ── Guard helper ──────────────────────────────────────────── */
-
-  private assertAdmin(authHeader?: string): void {
-    if (!this.adminKey) {
-      throw new HttpException('CONNECTOR_ADMIN_KEY is not configured', HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-    const token = authHeader?.replace(/^[Bb]earer\s+/, '').trim();
-    if (token !== this.adminKey) {
-      throw new HttpException('Invalid admin key', HttpStatus.UNAUTHORIZED);
-    }
-  }
 
   /* ── Health / Status ───────────────────────────────────────── */
 
@@ -50,10 +37,10 @@ export class ErpController {
   @Get('admin/status')
   @UseGuards(AdminKeyGuard)
   getAdminStatus() {
-    return { erpDatabase: 'postgres', adminKeyConfigured: !!this.adminKey };
+    return { erpDatabase: 'postgres', adminKeyConfigured: !!process.env.CONNECTOR_ADMIN_KEY };
   }
 
-  /* ── Existing endpoints (called by cloud-api) ──────────────── */
+  /* ── Endpoints called by cloud-api ─────────────────────────── */
 
   @Post('publish-results')
   @UseGuards(AdminKeyGuard)
@@ -72,28 +59,24 @@ export class ErpController {
   /* ── Admin endpoints (ERP management) ──────────────────────── */
 
   @Get('admin/records')
-  async listRecords(
-    @Headers('authorization') auth?: string,
-    @Query('issuerCode') issuerCode?: string,
-  ) {
-    this.assertAdmin(auth);
+  @UseGuards(AdminKeyGuard)
+  async listRecords(@Query('issuerCode') issuerCode?: string) {
     return this.erpService.listStudents(issuerCode);
   }
 
   @Post('admin/upsert')
+  @UseGuards(AdminKeyGuard)
   async upsertRecord(
-    @Headers('authorization') auth?: string,
-    @Body() body?: UpsertStudentBody,
+    @Body() body: UpsertStudentBody,
     @Query('issuerCode') issuerCode?: string,
   ) {
-    this.assertAdmin(auth);
     if (!body?.rollNumber?.trim() || !body?.name?.trim()) {
       throw new HttpException('rollNumber and name are required', HttpStatus.BAD_REQUEST);
     }
     return this.erpService.upsertStudent(
       {
-        rollNumber: body.rollNumber,
-        name: body.name,
+        rollNumber: body.rollNumber.trim(),
+        name: body.name.trim(),
         degree: body.degree || 'B.Tech',
         branch: body.branch || 'Computer Science',
         graduationYear: body.graduationYear || 2025,
@@ -104,12 +87,11 @@ export class ErpController {
   }
 
   @Post('admin/upsert-batch')
+  @UseGuards(AdminKeyGuard)
   async upsertBatch(
-    @Headers('authorization') auth?: string,
-    @Body() body?: { records?: UpsertStudentBody[] },
+    @Body() body: { records?: UpsertStudentBody[] },
     @Query('issuerCode') issuerCode?: string,
   ) {
-    this.assertAdmin(auth);
     if (!Array.isArray(body?.records) || body!.records.length === 0) {
       throw new HttpException('records array is required (1-500 items)', HttpStatus.BAD_REQUEST);
     }
@@ -130,12 +112,11 @@ export class ErpController {
   }
 
   @Delete('admin/records/:rollNumber')
+  @UseGuards(AdminKeyGuard)
   async deleteRecord(
-    @Headers('authorization') auth?: string,
-    @Param('rollNumber') rollNumber?: string,
+    @Param('rollNumber') rollNumber: string,
     @Query('issuerCode') issuerCode?: string,
   ) {
-    this.assertAdmin(auth);
     if (!rollNumber) {
       throw new HttpException('rollNumber param is required', HttpStatus.BAD_REQUEST);
     }
@@ -147,12 +128,11 @@ export class ErpController {
   }
 
   @Get('admin/lookup/:rollNumber')
+  @UseGuards(AdminKeyGuard)
   async lookupRecord(
-    @Headers('authorization') auth?: string,
-    @Param('rollNumber') rollNumber?: string,
+    @Param('rollNumber') rollNumber: string,
     @Query('issuerCode') issuerCode?: string,
   ) {
-    this.assertAdmin(auth);
     const student = await this.erpService.lookupStudent(rollNumber || '', issuerCode);
     if (!student) {
       throw new HttpException('Record not found', HttpStatus.NOT_FOUND);

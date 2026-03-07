@@ -43,7 +43,7 @@ export class ConfigService {
       },
 
       jwt: {
-        secret: process.env.JWT_SECRET || 'authenx-super-secret-jwt-key-2026',
+        secret: process.env.JWT_SECRET || 'authenx-jwt-secret-change-in-production',
         expiresIn: process.env.JWT_EXPIRES_IN || '24h',
       },
 

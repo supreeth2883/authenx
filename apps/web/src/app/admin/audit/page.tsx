@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { AdminShell } from "@/components/shells";
+import { PageSpinner, Button, inputCls, selectCls, Card, Pagination } from "@/components/ui";
+import { apiGet, apiRaw, ApiError } from "@/lib/api";
 
 interface AuditLog {
   id: string;
@@ -33,7 +35,6 @@ interface ChainStatus {
 }
 
 export default function AuditPage() {
-  const router = useRouter();
   const [logs, setLogs] = useState<AuditPage | null>(null);
   const [chainStatus, setChainStatus] = useState<ChainStatus | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,13 +49,6 @@ export default function AuditPage() {
   const [page, setPage] = useState(1);
   const [verifying, setVerifying] = useState(false);
 
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    localStorage.removeItem("authenx_role");
-    localStorage.removeItem("authenx_user");
-    router.push("/login");
-  };
-
   const fetchLogs = useCallback(async () => {
     const params = new URLSearchParams();
     if (action) params.set("action", action);
@@ -66,8 +60,7 @@ export default function AuditPage() {
     params.set("limit", "25");
 
     try {
-      const res = await fetch(`/api/proxy/admin/audit-logs?${params.toString()}`);
-      const data: AuditPage = await res.json();
+      const data = await apiGet<AuditPage>(`/admin/audit-logs?${params.toString()}`);
       setLogs(data);
     } catch {
       // silent
@@ -76,8 +69,7 @@ export default function AuditPage() {
 
   const fetchChainStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/proxy/admin/audit-logs/verify-chain");
-      const data: ChainStatus = await res.json();
+      const data = await apiGet<ChainStatus>("/admin/audit-logs/verify-chain");
       setChainStatus(data);
     } catch {
       // silent
@@ -115,7 +107,7 @@ export default function AuditPage() {
       if (startDate) params.set("startDate", startDate);
       if (endDate) params.set("endDate", endDate);
 
-      const res = await fetch(`/api/proxy/admin/audit-logs/export?${params.toString()}`);
+      const res = await apiRaw(`/admin/audit-logs/export?${params.toString()}`);
       const data = await res.json();
 
       // Download CSV
@@ -133,78 +125,14 @@ export default function AuditPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50 dark:from-slate-950 dark:to-slate-900">
-        <div className="flex items-center gap-3 text-slate-500">
-          <svg className="animate-spin h-6 w-6" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          Loading audit logs…
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <PageSpinner label="Loading audit logs…" />;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-indigo-50 dark:from-slate-950 dark:to-slate-900">
-      {/* Header */}
-      <header className="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">AuthenX</h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Audit Trail</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <a href="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
-              ← Dashboard
-            </a>
-            <span className="text-sm font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950 px-3 py-1 rounded-full">
-              Audit
-            </span>
-            <button
-              onClick={handleVerifyIntegrity}
-              disabled={verifying}
-              className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 px-3 py-1.5 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-            >
-              {verifying ? (
-                <>
-                  <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  Verifying…
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Verify
-                </>
-              )}
-            </button>
-            <button
-              onClick={handleLogout}
-              className="text-sm font-medium text-red-500 hover:text-red-400 bg-red-50 dark:bg-red-950/50 px-3 py-1 rounded-full transition-colors"
-            >
-              Sign out
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
-        {/* Chain Integrity Status */}
+    <AdminShell>
+      {/* Chain Integrity Status + Verify Button */}
+      <div className="flex items-center justify-between">
         {chainStatus && (
-          <div className={`rounded-xl p-4 border ${chainStatus.valid ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800' : 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800'}`}>
+          <div className={`flex-1 rounded-xl p-4 border ${chainStatus.valid ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800' : 'bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-800'}`}>
             <div className="flex items-center gap-3">
               {chainStatus.valid ? (
                 <svg className="w-6 h-6 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -227,63 +155,32 @@ export default function AuditPage() {
             </div>
           </div>
         )}
+        <Button variant="secondary" onClick={handleVerifyIntegrity} loading={verifying} size="sm">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Verify Chain
+        </Button>
+      </div>
 
-        {/* Filters */}
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-4">
-          <form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-6 gap-4">
-            <select
-              value={action}
-              onChange={(e) => setAction(e.target.value)}
-              className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white"
-            >
-              <option value="">All Actions</option>
-              <option value="CREDENTIAL_ISSUED">Credential Issued</option>
-              <option value="CREDENTIAL_VERIFIED">Credential Verified</option>
-            </select>
-            <input
-              type="text"
-              placeholder="Organization"
-              value={organization}
-              onChange={(e) => setOrganization(e.target.value)}
-              className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400"
-            />
-            <input
-              type="text"
-              placeholder="Credential ID"
-              value={credentialId}
-              onChange={(e) => setCredentialId(e.target.value)}
-              className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white placeholder-slate-400"
-            />
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white"
-            />
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-white"
-            />
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-medium transition-colors"
-              >
-                Filter
-              </button>
-              <button
-                type="button"
-                onClick={handleExport}
-                disabled={exporting}
-                className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-              >
-                {exporting ? '…' : 'CSV'}
-              </button>
-            </div>
-          </form>
-        </div>
+      {/* Filters */}
+      <Card padding="p-4">
+        <form onSubmit={(e) => { e.preventDefault(); setPage(1); fetchLogs(); }} className="grid grid-cols-1 md:grid-cols-6 gap-4">
+          <select value={action} onChange={(e) => setAction(e.target.value)} className={selectCls}>
+            <option value="">All Actions</option>
+            <option value="CREDENTIAL_ISSUED">Credential Issued</option>
+            <option value="CREDENTIAL_VERIFIED">Credential Verified</option>
+          </select>
+          <input type="text" placeholder="Organization" value={organization} onChange={(e) => setOrganization(e.target.value)} className={inputCls} />
+          <input type="text" placeholder="Credential ID" value={credentialId} onChange={(e) => setCredentialId(e.target.value)} className={inputCls} />
+          <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={inputCls} />
+          <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={inputCls} />
+          <div className="flex gap-2">
+            <Button type="submit" size="sm" className="flex-1">Filter</Button>
+            <Button variant="secondary" size="sm" onClick={handleExport} loading={exporting}>CSV</Button>
+          </div>
+        </form>
+      </Card>
 
         {/* Results Count */}
         {logs && (
@@ -294,8 +191,8 @@ export default function AuditPage() {
           </div>
         )}
 
-        {/* Table */}
-        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+      {/* Table */}
+      <Card padding="p-0" className="overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -369,31 +266,12 @@ export default function AuditPage() {
               </tbody>
             </table>
           </div>
-        </div>
+      </Card>
 
-        {/* Pagination */}
-        {logs && logs.totalPages > 1 && (
-          <div className="flex items-center justify-center gap-2">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1}
-              className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-sm font-medium disabled:opacity-40 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-            >
-              ← Prev
-            </button>
-            <span className="text-sm text-slate-500 dark:text-slate-400">
-              Page {page} of {logs.totalPages}
-            </span>
-            <button
-              onClick={() => setPage((p) => Math.min(logs.totalPages, p + 1))}
-              disabled={page >= logs.totalPages}
-              className="px-3 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-sm font-medium disabled:opacity-40 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-            >
-              Next →
-            </button>
-          </div>
-        )}
-      </main>
-    </div>
+      {/* Pagination */}
+      {logs && logs.totalPages > 1 && (
+        <Pagination page={page} totalPages={logs.totalPages} total={logs.total} limit={logs.limit} onPageChange={setPage} />
+      )}
+    </AdminShell>
   );
 }

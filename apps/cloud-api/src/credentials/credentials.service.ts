@@ -97,7 +97,8 @@ export class CredentialsService {
     const keyVersion = signatureResponse.keyVersion ?? 1;
     await this.syncIssuerKey(issuer.issuerCode, issuer.connectorBaseUrl, keyVersion);
 
-    // 6. Store credential in DB with keyVersion
+    // 6. Store credential in DB with keyVersion, payload, and metadata
+    const now = new Date();
     const credential = await this.prisma.credential.create({
       data: {
         issuerCode: dto.issuerCode,
@@ -110,6 +111,12 @@ export class CredentialsService {
         cgpa: dto.cgpa,
         hash,
         signature: signatureResponse.signature,
+        issuedAt: now,
+        payload: credentialPayload,
+        metadata: {
+          signedAt: now.toISOString(),
+          connectorUrl: issuer.connectorBaseUrl,
+        },
       },
     });
 
@@ -198,7 +205,7 @@ export class CredentialsService {
       data: {
         status: CredentialStatus.REVOKED,
         revokedAt: new Date(),
-        revokedReason: opts.reason,
+        revocationReason: opts.reason,
       },
     });
 
@@ -218,7 +225,7 @@ export class CredentialsService {
       credentialId: updated.id,
       status: updated.status,
       revokedAt: updated.revokedAt,
-      revokedReason: updated.revokedReason,
+      revocationReason: updated.revocationReason,
     };
   }
 
@@ -310,13 +317,19 @@ export class CredentialsService {
         detail: 'Credential not found',
         ipAddress,
       });
-      throw new HttpException('Credential not found', HttpStatus.NOT_FOUND);
+      throw new HttpException(
+        { error: 'NOT_FOUND', message: 'Credential not found', credentialId: id },
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     // 2. Look up issuer + versioned key
     const issuer = await this.issuersService.findByCode(credential.issuerCode);
     if (!issuer) {
-      throw new HttpException(`Issuer "${credential.issuerCode}" not found`, HttpStatus.NOT_FOUND);
+      throw new HttpException(
+        { error: 'ISSUER_MISMATCH', message: `Issuer "${credential.issuerCode}" not found`, credentialId: id },
+        HttpStatus.NOT_FOUND,
+      );
     }
 
     const keyVersion = credential.keyVersion ?? 1;
@@ -390,7 +403,7 @@ export class CredentialsService {
       issuedAt: credential.createdAt,
       status: credential.status,
       revokedAt: credential.revokedAt,
-      revokedReason: credential.revokedReason,
+      revocationReason: credential.revocationReason,
       verification: {
         hashValid,
         signatureValid,
@@ -400,6 +413,7 @@ export class CredentialsService {
         verifiedAt: new Date().toISOString(),
         orgName,
         keyVersion,
+        errorCode: !hashValid ? 'INVALID_HASH' : !signatureValid ? 'INVALID_SIGNATURE' : revoked ? 'REVOKED' : null,
       },
     };
   }

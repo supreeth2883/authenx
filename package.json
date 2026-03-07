@@ -23,5 +23,8 @@
       "bcrypt",
       "@prisma/client"
     ]
+  },
+  "dependencies": {
+    "tweetnacl": "^1.0.3"
   }
 }

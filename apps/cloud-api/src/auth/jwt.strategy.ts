@@ -19,7 +19,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         },
       ]),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'authenx-jwt-secret-change-in-production',
+      secretOrKey: process.env.JWT_SECRET || 'authenx-jwt-secret-change-in-production', // must match auth.module.ts
     });
   }
 

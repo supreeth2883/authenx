@@ -5,7 +5,15 @@ import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { JwtStrategy } from './jwt.strategy.js';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'authenx-jwt-secret-change-in-production';
+const DEV_FALLBACK = 'authenx-jwt-secret-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || DEV_FALLBACK;
+
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  throw new Error(
+    'FATAL: JWT_SECRET environment variable is required in production. ' +
+    'Generate one with: openssl rand -base64 32',
+  );
+}
 
 @Module({
   imports: [

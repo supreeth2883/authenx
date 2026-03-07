@@ -41,18 +41,35 @@ export class ErpService {
   }
 
   async lookupStudent(rollNumber: string, issuerCode?: string): Promise<Student | null> {
-    const code = issuerCode || this.defaultIssuerCode;
-    const row = await this.prisma.erpStudent.findFirst({
-      where: { rollNumber: { equals: rollNumber, mode: 'insensitive' }, issuerCode: code },
+    const trimmedRoll = rollNumber.trim();
+    const code = issuerCode || process.env.ISSUER_CODE;
+    if (!code) {
+      throw new Error('ISSUER_CODE not configured in connector environment');
+    }
+    console.log("Looking up student:", { rollNumber: trimmedRoll, issuerCode: code });
+    let student = await this.prisma.erpStudent.findFirst({
+      where: {
+        rollNumber: trimmedRoll,
+        issuerCode: code
+      }
     });
-    if (!row) return null;
+    console.log("ERP lookup result:", student);
+    // Fallback: try without issuerCode if not found
+    if (!student) {
+      console.log("No match with issuerCode, trying rollNumber only");
+      student = await this.prisma.erpStudent.findFirst({
+        where: { rollNumber: trimmedRoll }
+      });
+      console.log("ERP fallback result:", student);
+    }
+    if (!student) return null;
     return {
-      name: row.name,
-      rollNumber: row.rollNumber,
-      degree: row.degree,
-      branch: row.branch,
-      graduationYear: row.graduationYear,
-      cgpa: row.cgpa,
+      name: student.name,
+      rollNumber: student.rollNumber,
+      degree: student.degree,
+      branch: student.branch,
+      graduationYear: student.graduationYear,
+      cgpa: student.cgpa,
     };
   }
 
@@ -182,16 +199,25 @@ export class ErpService {
     reason?: string;
     diff?: Record<string, { expected: unknown; received: unknown }>;
   }> {
-    const code = input.issuerCode || this.defaultIssuerCode;
+    const trimmedRoll = input.rollNumber.trim();
+    const code = input.issuerCode || process.env.ISSUER_CODE;
+    if (!code) {
+      throw new Error('ISSUER_CODE not configured in connector environment');
+    }
     const count = await this.prisma.erpStudent.count({ where: { issuerCode: code } });
     if (count === 0) {
       return { matched: false, reason: 'ERP_EMPTY' };
     }
-
-    const found = await this.prisma.erpStudent.findFirst({
-      where: { rollNumber: { equals: input.rollNumber, mode: 'insensitive' }, issuerCode: code },
+    console.log("Looking up student:", { rollNumber: trimmedRoll, issuerCode: code });
+    let found = await this.prisma.erpStudent.findFirst({
+      where: { rollNumber: trimmedRoll, issuerCode: code },
     });
-
+    console.log("ERP lookup result:", found);
+    if (!found) {
+      console.log("No match with issuerCode, trying rollNumber only");
+      found = await this.prisma.erpStudent.findFirst({ where: { rollNumber: trimmedRoll } });
+      console.log("ERP fallback result:", found);
+    }
     if (!found) {
       return { matched: false, reason: 'NOT_FOUND' };
     }

@@ -13,6 +13,9 @@ const API_URL =
  * Forwards requests to the cloud-api backend, injecting the JWT
  * from the web-domain cookie as an Authorization header.
  * Generates x-request-id for observability.
+ *
+ * SECURITY: No backend secrets (e.g. CONNECTOR_ADMIN_KEY) are ever sent to the browser.
+ * All privileged connector calls are made server-to-server from cloud-api only.
  */
 async function handler(
   request: NextRequest,

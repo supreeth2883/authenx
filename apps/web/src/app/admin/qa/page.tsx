@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
+import { AdminShell } from "@/components/shells";
+import { Button, Card } from "@/components/ui";
 
 interface Step {
   id: number;
@@ -39,7 +40,6 @@ const INITIAL_STEPS: Step[] = [
 ];
 
 export default function QAPage() {
-  const router = useRouter();
   const [steps, setSteps] = useState<Step[]>(INITIAL_STEPS);
   const [running, setRunning] = useState(false);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -49,13 +49,6 @@ export default function QAPage() {
   const updateStep = useCallback((id: number, patch: Partial<Step>) => {
     setSteps((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
   }, []);
-
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    localStorage.removeItem("authenx_role");
-    localStorage.removeItem("authenx_user");
-    router.push("/login");
-  };
 
   const runAll = useCallback(async () => {
     setRunning(true);
@@ -438,33 +431,7 @@ export default function QAPage() {
   const totalDuration = startedAt && finishedAt ? ((finishedAt - startedAt) / 1000).toFixed(1) : null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-indigo-50 dark:from-slate-950 dark:to-slate-900">
-      {/* Header */}
-      <header className="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-cyan-600 flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Platform QA</h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">End-to-End System Checklist</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <a href="/admin" className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 transition-colors">
-              ← Dashboard
-            </a>
-            <button onClick={handleLogout} className="text-sm font-medium text-red-500 hover:text-red-400 bg-red-50 dark:bg-red-950/50 px-3 py-1 rounded-full transition-colors cursor-pointer">
-              Sign out
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-4xl mx-auto px-6 py-8 space-y-6">
+    <AdminShell>
         {/* ERP Database Badge */}
         <div className={`rounded-xl border px-4 py-3 flex items-center gap-3 text-sm ${
           erpMode === "postgres"
@@ -486,7 +453,7 @@ export default function QAPage() {
         </div>
 
         {/* Run button + summary */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
+        <Card>
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white">System Health Checklist</h2>
@@ -494,28 +461,12 @@ export default function QAPage() {
                 Runs 17 sequential checks against all platform endpoints.
               </p>
             </div>
-            <button
-              onClick={runAll}
-              disabled={running}
-              className="px-6 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-semibold text-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-2"
-            >
-              {running ? (
-                <>
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Running…
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
-                  </svg>
-                  Run All Checks
-                </>
-              )}
-            </button>
+            <Button onClick={runAll} loading={running} className="bg-cyan-600 hover:bg-cyan-700">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z" />
+              </svg>
+              Run All Checks
+            </Button>
           </div>
 
           {/* Summary bar */}
@@ -547,10 +498,10 @@ export default function QAPage() {
             </motion.div>
           )}
           </AnimatePresence>
-        </div>
+        </Card>
 
         {/* Steps */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <Card padding="p-0" className="overflow-hidden">
           {steps.map((step, idx) => {
             // Section headers
             const sectionHeaders: Record<number, string> = { 1: "Infrastructure", 6: "College ERP", 9: "Model A: ERP \u2192 Issue", 11: "Platform Data", 15: "Audit & Analytics" };
@@ -633,7 +584,7 @@ export default function QAPage() {
               </div>
             );
           })}
-        </div>
+        </Card>
 
         {/* Footer */}
         <div className="text-center">
@@ -641,7 +592,6 @@ export default function QAPage() {
             AuthenX QA — All checks run as SUPER_ADMIN. College ERP is backed by PostgreSQL. Public verify is disabled.
           </p>
         </div>
-      </main>
-    </div>
+    </AdminShell>
   );
 }

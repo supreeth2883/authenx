@@ -146,8 +146,12 @@ model Credential {
   signature      String
   status         CredentialStatus @default(ISSUED)
   revokedAt      DateTime?
-  revokedReason  String?
+  revocationReason String?
   createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  issuedAt       DateTime         @default(now())
+  payload        Json?
+  metadata       Json?
 
   issuer Issuer @relation(fields: [issuerCode], references: [issuerCode])
 

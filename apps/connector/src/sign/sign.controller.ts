@@ -15,7 +15,7 @@ export class SignController {
     const result = this.keysService.sign(body.payload);
     return {
       signature: result.signature,
-      keyVersion: result.keyVersion,
+      keyVersion: 1,
     };
   }
 }

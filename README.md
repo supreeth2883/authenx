@@ -2,7 +2,7 @@
 
 Enterprise-grade credential issuance, verification, and management platform with cryptographic audit trails and production-ready deployment.
 
-**Version**: 1.0.0  
+**Version**: 1.1.0  
 **Status**: Production Ready
 
 ---
@@ -81,12 +81,17 @@ pnpm dev
 ```
 authenx-plus/
 ├── apps/
-│   ├── cloud-api/          # NestJS backend API
-│   ├── connector/          # NestJS signing service
-│   ├── web/               # Next.js admin dashboard
+│   ├── cloud-api/          # NestJS backend API (port 3001)
+│   ├── connector/          # NestJS signing service (port 3002)
+│   ├── web/               # Next.js portal frontend (port 3000)
+│       ├── src/components/ui/      # Shared UI component library
+│       ├── src/components/shells/  # Role-based portal shells
+│       └── src/lib/api.ts          # Centralized API client
 ├── docker-compose.yml      # Development stack
 ├── docker-compose.prod.yml # Production stack
 ├── DEPLOYMENT.md          # Comprehensive deployment guide
+├── ENVIRONMENT_VARIABLES.md # Complete env var reference
+├── RUNBOOK.md             # Operational runbook
 └── QUICKSTART-PRODUCTION.md # Production quick start
 ```
 
@@ -145,11 +150,13 @@ npx prisma studio
 ### Deployment & Operations
 - **[DEPLOYMENT.md](DEPLOYMENT.md)**: Comprehensive deployment guide for Render, Railway, AWS
 - **[QUICKSTART-PRODUCTION.md](QUICKSTART-PRODUCTION.md)**: 5-minute production setup
+- **[ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md)**: Complete environment variable reference
+- **[RUNBOOK.md](RUNBOOK.md)**: Operational runbook (health checks, troubleshooting, backups)
 
 ### Development
-- **[apps/cloud-api/README.md](apps/cloud-api/README.md)**: API documentation
-- **[apps/connector/README.md](apps/connector/README.md)**: Signing service
-- **[apps/web/README.md](apps/web/README.md)**: Frontend documentation
+- **[apps/cloud-api/README.md](apps/cloud-api/README.md)**: Cloud API — full endpoint reference, schema, security
+- **[apps/connector/README.md](apps/connector/README.md)**: Connector — signing service, key management, ERP
+- **[apps/web/README.md](apps/web/README.md)**: Web — component library, shells, middleware RBAC
 
 ### Testing
 ```bash
@@ -284,33 +291,73 @@ pnpm build
 
 ### Authentication
 ```
-POST   /auth/login               - User login
-POST   /auth/register            - User registration
-POST   /auth/logout              - User logout
-POST   /auth/refresh             - Refresh JWT token
+POST   /auth/login               - User login (5 req/min)
+POST   /auth/register            - Register user (SUPER_ADMIN)
+POST   /auth/logout              - Clear JWT cookie
+GET    /auth/me                  - Current user info
 ```
 
 ### Credentials
 ```
-POST   /credentials/issue        - Issue credential
-GET    /credentials/:id          - Get credential
-GET    /credentials/:id/verify   - Verify credential
-POST   /credentials/:id/revoke   - Revoke credential
+POST   /credentials/issue        - Issue credential (COLLEGE_ADMIN)
+GET    /credentials/:id          - Public credential lookup
+GET    /credentials/:id/verify   - Employer verification (EMPLOYER)
+GET    /verify/:id               - Public cryptographic verification
+```
+
+### College Portal
+```
+GET    /college/credentials              - List credentials (issuer-scoped)
+POST   /college/credentials/precheck     - Validate student against ERP
+POST   /college/credentials/issue-from-erp - Issue from ERP
+POST   /college/credentials/publish      - Batch publish
+PATCH  /college/credentials/:id/revoke   - Revoke credential
 ```
 
 ### Admin
 ```
+GET    /admin/stats              - Dashboard statistics
+GET    /admin/credentials        - List all credentials
+GET    /admin/analytics          - Issued/day, verification rate, top orgs
 GET    /admin/audit-logs         - View audit logs
 GET    /admin/audit-logs/verify-chain - Verify chain integrity
-GET    /admin/stats              - System statistics
-GET    /admin/credentials        - List all credentials
-GET    /admin/users              - List users
+GET    /admin/audit-logs/export  - Export audit logs as CSV
+GET    /admin/health             - System health check
 ```
 
-### Issuer (connector)
+### Admin Users & Issuers
+```
+GET/POST/PATCH/DELETE  /admin/users/:id     - User CRUD
+GET/POST               /admin/issuers       - Issuer management
+POST   /admin/issuers/:code/ping            - Ping connector
+```
+
+### Employer
+```
+GET    /employer/verify/:id      - Verify credential (PII-stripped)
+```
+
+### Well-Known (Public)
+```
+GET    /.well-known/authenx/:code/public-key - Ed25519 public keys
+GET    /.well-known/authenx/:code/jwks       - JWK Set format
+GET    /.well-known/authenx/:code/did.json   - W3C DID Document
+```
+
+### Connector (Signing Service)
 ```
 POST   /sign                     - Sign data with Ed25519
-GET    /public-keys              - Get issuer public keys
+GET    /public-key               - Active public key
+GET    /public-keys              - All known public keys
+POST   /ping                     - Signed ping/nonce
+```
+
+### Connector ERP
+```
+GET    /erp/health               - ERP health status
+POST   /erp/validate-student     - Validate student record
+POST   /erp/publish-results      - Publish to cloud-api
+GET/POST/DELETE  /erp/admin/*    - ERP record management
 ```
 
 ---
@@ -517,6 +564,35 @@ For issues, questions, or deployment help:
 ---
 
 ## 🔄 Changelog
+
+### v1.1.0
+
+**Backend Hardening (Phase 1)**
+- Ed25519 key persistence with versioned `IssuerKey` model
+- Public verify endpoint (`GET /verify/:id`) — no auth required
+- Credential schema: added `updatedAt`, `issuedAt`, `payload`, `metadata`, `revocationReason`
+- Hardened verification error mapping with `VerifyOutcome` enum
+- Unified ERP auth guards (`AdminKeyGuard`)
+- Rate limiting decorators (`@ThrottleAuth`, `@ThrottleVerify`, `@ThrottlePublic`)
+- Sign controller `keyVersion` fix
+- `.well-known/authenx` endpoints (public-key, JWKS, DID Document)
+- Dead code cleanup across connector
+
+**Frontend Refactoring (Phase 2)**
+- Shared UI component library: Spinner, Modal, Cards, Form, Toast, QrModal
+- Portal shell system: AdminShell, CollegeShell, EmployerShell with role-based theming
+- Centralized API client (`lib/api.ts`) replacing all raw `fetch()` calls
+- Next.js middleware RBAC (cookie-based JWT, strict route isolation)
+- All 9 portal pages refactored to use shared components
+- Error/loading/404 boundary pages
+- Zero TypeScript errors (`tsc --noEmit` clean)
+
+**Documentation (Phase 3)**
+- Cloud API comprehensive README with full endpoint reference
+- Connector README with key management + ERP docs
+- Web README with component library API reference
+- Environment variables reference guide
+- Operational runbook
 
 ### v1.0.0 (February 15, 2026)
 - ✅ Enterprise security hardening

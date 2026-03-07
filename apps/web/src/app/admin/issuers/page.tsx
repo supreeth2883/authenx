@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { AdminShell } from "@/components/shells";
+import { PageSpinner, Spinner, Button, inputCls, Modal, Card, EmptyState, useToast, ToastContainer } from "@/components/ui";
+import { apiGet, apiPost, ApiError } from "@/lib/api";
 
 /* ── Types ────────────────────────────────────────────────────── */
 
@@ -27,32 +29,9 @@ interface PingResult {
   message: string;
 }
 
-/* ── Helpers ──────────────────────────────────────────────────── */
-
-const inputCls =
-  "w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm";
-
-function Spinner() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50 dark:from-slate-950 dark:to-slate-900">
-      <div className="flex items-center gap-3 text-slate-500">
-        <svg className="animate-spin h-6 w-6" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-        Loading…
-      </div>
-    </div>
-  );
-}
-
 /* ── Page Component ──────────────────────────────────────────── */
 
 export default function AdminIssuersPage() {
-  const router = useRouter();
-  const [authChecked, setAuthChecked] = useState(false);
-  const [currentRole, setCurrentRole] = useState<string | null>(null);
-
   /* data */
   const [issuers, setIssuers] = useState<IssuerRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -77,90 +56,34 @@ export default function AdminIssuersPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   /* toast */
-  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
-
-  const showToast = (message: string, type: "success" | "error") => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
-  };
-
-  /* ── Auth check ─────────────────────────────────────────── */
-  useEffect(() => {
-    fetch("/api/proxy/auth/me")
-      .then((r) => {
-        if (!r.ok) throw new Error("Not authenticated");
-        return r.json();
-      })
-      .then((u) => {
-        setCurrentRole(u.role);
-        setAuthChecked(true);
-      })
-      .catch(() => router.push("/login"));
-  }, [router]);
+  const { toasts, addToast, removeToast } = useToast();
 
   /* ── Fetch issuers ──────────────────────────────────────── */
   const fetchIssuers = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/proxy/admin/issuers");
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || `HTTP ${res.status}`);
-      }
-      const data: IssuerRow[] = await res.json();
+      const data = await apiGet<IssuerRow[]>("/admin/issuers");
       setIssuers(data);
     } catch (ex: unknown) {
-      setError(ex instanceof Error ? ex.message : "Failed to load issuers");
+      setError(ex instanceof ApiError ? ex.message : "Failed to load issuers");
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (authChecked && currentRole === "SUPER_ADMIN") {
-      fetchIssuers();
-    }
-  }, [authChecked, currentRole, fetchIssuers]);
-
-  /* ── RBAC gate ──────────────────────────────────────────── */
-  if (!authChecked) return <Spinner />;
-
-  if (currentRole !== "SUPER_ADMIN") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50 dark:from-slate-950 dark:to-slate-900">
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow p-8 text-center max-w-sm">
-          <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-red-100 dark:bg-red-950 flex items-center justify-center">
-            <svg className="w-7 h-7 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" />
-            </svg>
-          </div>
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Not Authorized</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Super Admin access required.</p>
-          <button onClick={() => router.push("/admin")} className="text-sm font-medium text-indigo-600 hover:text-indigo-500 cursor-pointer">← Back to Dashboard</button>
-        </div>
-      </div>
-    );
-  }
+    fetchIssuers();
+  }, [fetchIssuers]);
 
   /* ── Handlers ───────────────────────────────────────────── */
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
-  };
-
   const handlePreCheck = async () => {
     const url = regForm.connectorBaseUrl.trim();
     if (!url) return;
     setPreChecking(true);
     setPreCheck(null);
     try {
-      const res = await fetch("/api/proxy/admin/issuers/check-connector", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ connectorBaseUrl: url }),
-      });
-      const data: ConnectorCheck = await res.json();
+      const data = await apiPost<ConnectorCheck>("/admin/issuers/check-connector", { connectorBaseUrl: url });
       setPreCheck(data);
     } catch {
       setPreCheck(null);
@@ -174,28 +97,19 @@ export default function AdminIssuersPage() {
     setRegError(null);
     setRegSuccess(null);
     try {
-      const res = await fetch("/api/proxy/admin/issuers/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          issuerCode: regForm.issuerCode.trim(),
-          name: regForm.name.trim(),
-          connectorBaseUrl: regForm.connectorBaseUrl.trim().replace(/\/+$/, ""),
-        }),
+      const data = await apiPost<{ message?: string }>("/admin/issuers/register", {
+        issuerCode: regForm.issuerCode.trim(),
+        name: regForm.name.trim(),
+        connectorBaseUrl: regForm.connectorBaseUrl.trim().replace(/\/+$/, ""),
       });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || `Error ${res.status}`);
-      }
-      const data = await res.json();
       setRegSuccess(data.message || "Issuer registered successfully!");
-      showToast(`Issuer "${regForm.issuerCode}" registered`, "success");
+      addToast(`Issuer "${regForm.issuerCode}" registered`, "success");
       setRegForm({ issuerCode: "", name: "", connectorBaseUrl: "" });
       setPreCheck(null);
       setShowRegister(false);
       fetchIssuers();
     } catch (ex: unknown) {
-      setRegError(ex instanceof Error ? ex.message : "Registration failed");
+      setRegError(ex instanceof ApiError ? ex.message : "Registration failed");
     } finally {
       setRegistering(false);
     }
@@ -204,12 +118,9 @@ export default function AdminIssuersPage() {
   const handlePing = async (issuerCode: string) => {
     setPinging((p) => ({ ...p, [issuerCode]: true }));
     try {
-      const res = await fetch(`/api/proxy/admin/issuers/${issuerCode}/ping`, {
-        method: "POST",
-      });
-      const data: PingResult = await res.json();
+      const data = await apiPost<PingResult>(`/admin/issuers/${issuerCode}/ping`);
       setPingResults((p) => ({ ...p, [issuerCode]: data }));
-      showToast(
+      addToast(
         data.ok ? `${issuerCode}: reachable (${data.latencyMs}ms)` : `${issuerCode}: ${data.message}`,
         data.ok ? "success" : "error",
       );
@@ -229,81 +140,40 @@ export default function AdminIssuersPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  if (loading && issuers.length === 0) return <PageSpinner />;
+
   /* ── Render ─────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-indigo-50 dark:from-slate-950 dark:to-slate-900">
-      {/* Toast */}
-      {toast && (
-        <div className={`fixed top-4 right-4 z-[60] px-4 py-3 rounded-xl shadow-lg text-sm font-medium border ${
-          toast.type === "success"
-            ? "bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
-            : "bg-red-50 dark:bg-red-950/80 text-red-700 dark:text-red-300 border-red-200 dark:border-red-800"
-        }`}>
-          {toast.message}
-        </div>
+    <AdminShell>
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      {/* Action Bar */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Registered Issuers</h2>
+        <Button onClick={() => { setShowRegister(true); setRegError(null); setRegSuccess(null); setPreCheck(null); }}>
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          Register Issuer
+        </Button>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-300 text-sm">{error}</div>
       )}
 
-      {/* Header */}
-      <header className="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Issuer Management</h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Register and monitor credential issuers</p>
-            </div>
+      {/* Table */}
+      <Card padding="p-0" className="overflow-hidden">
+        {loading ? (
+          <div className="p-12 text-center text-slate-400">
+            <Spinner label="Loading issuers…" />
           </div>
-          <div className="flex items-center gap-3">
-            <a href="/admin" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">← Dashboard</a>
-            <a href="/admin/users" className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 transition-colors">Users</a>
-            <a href="/admin/audit" className="text-sm font-medium text-amber-600 dark:text-amber-400 hover:text-amber-500 transition-colors">Audit</a>
-            <button onClick={handleLogout} className="text-sm font-medium text-red-500 hover:text-red-400 bg-red-50 dark:bg-red-950/50 px-3 py-1 rounded-full transition-colors cursor-pointer">Sign out</button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
-        {/* Action Bar */}
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Registered Issuers</h2>
-          <button
-            onClick={() => { setShowRegister(true); setRegError(null); setRegSuccess(null); setPreCheck(null); }}
-            className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors cursor-pointer flex items-center gap-2"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            Register Issuer
-          </button>
-        </div>
-
-        {/* Error */}
-        {error && (
-          <div className="p-4 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-300 text-sm">{error}</div>
-        )}
-
-        {/* Table */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
-          {loading ? (
-            <div className="p-12 text-center text-slate-400">
-              <svg className="animate-spin h-6 w-6 mx-auto mb-2" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              Loading issuers…
-            </div>
           ) : issuers.length === 0 ? (
-            <div className="p-12 text-center">
-              <svg className="w-12 h-12 mx-auto mb-3 text-slate-300 dark:text-slate-600" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75Z" />
-              </svg>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">No issuers registered yet.</p>
-              <p className="text-xs text-slate-400 dark:text-slate-500">Click "Register Issuer" to connect a college connector.</p>
-            </div>
+          <EmptyState
+            icon={<svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75Z" /></svg>}
+            title="No issuers registered yet"
+            description='Click "Register Issuer" to connect a college connector.'
+          />
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -390,24 +260,10 @@ export default function AdminIssuersPage() {
               </table>
             </div>
           )}
-        </div>
-      </main>
+      </Card>
 
       {/* ═══════════════════════ REGISTER MODAL ═══════════════════════ */}
-      {showRegister && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowRegister(false)}>
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-lg mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center">
-                <svg className="w-5 h-5 text-indigo-600 dark:text-indigo-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 21v-8.25M15.75 21v-8.25M8.25 21v-8.25M3 9l9-6 9 6m-1.5 12V10.332A48.36 48.36 0 0 0 12 9.75c-2.551 0-5.056.2-7.5.582V21M3 21h18M12 6.75h.008v.008H12V6.75Z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Register New Issuer</h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400">Connect a college connector to the platform</p>
-              </div>
-            </div>
+      <Modal open={showRegister} onClose={() => setShowRegister(false)} title="Register New Issuer" subtitle="Connect a college connector to the platform" maxWidth="max-w-lg">
 
             <div className="space-y-4">
               <div>
@@ -441,18 +297,15 @@ export default function AdminIssuersPage() {
                     className={inputCls + " flex-1"}
                     placeholder="https://authenx-connector.onrender.com"
                   />
-                  <button
+                  <Button
+                    variant="secondary"
                     onClick={handlePreCheck}
-                    disabled={!regForm.connectorBaseUrl.trim() || preChecking}
-                    className="px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer disabled:opacity-40 whitespace-nowrap flex items-center gap-1.5"
+                    disabled={!regForm.connectorBaseUrl.trim()}
+                    loading={preChecking}
                   >
-                    {preChecking ? (
-                      <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                    ) : (
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424-7.424m-1.414 1.414a2.25 2.25 0 0 0-3.182 0m3.182 0a2.25 2.25 0 0 1 0 3.182" /></svg>
-                    )}
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 0 1 7.424-7.424m-1.414 1.414a2.25 2.25 0 0 0-3.182 0m3.182 0a2.25 2.25 0 0 1 0 3.182" /></svg>
                     Test
-                  </button>
+                  </Button>
                 </div>
               </div>
 
@@ -488,28 +341,17 @@ export default function AdminIssuersPage() {
             </div>
 
             <div className="flex gap-2 mt-6">
-              <button
-                onClick={() => setShowRegister(false)}
-                className="flex-1 py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
+              <Button variant="secondary" onClick={() => setShowRegister(false)} className="flex-1">Cancel</Button>
+              <Button
                 onClick={handleRegister}
-                disabled={!regForm.issuerCode.trim() || !regForm.name.trim() || !regForm.connectorBaseUrl.trim() || registering}
-                className="flex-1 py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                disabled={!regForm.issuerCode.trim() || !regForm.name.trim() || !regForm.connectorBaseUrl.trim()}
+                loading={registering}
+                className="flex-1"
               >
-                {registering ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                    Registering…
-                  </>
-                ) : "Register Issuer"}
-              </button>
+                Register Issuer
+              </Button>
             </div>
-          </div>
-        </div>
-      )}
-    </div>
+      </Modal>
+    </AdminShell>
   );
 }

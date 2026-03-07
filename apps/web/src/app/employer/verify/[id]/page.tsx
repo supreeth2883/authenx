@@ -1,7 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
+import { EmployerShell } from "@/components/shells";
+import { Spinner } from "@/components/ui";
+import { apiGet, ApiError } from "@/lib/api";
 
 interface VerificationResult {
   credentialId: string;
@@ -28,7 +31,6 @@ interface VerificationResult {
  */
 export default function EmployerVerifyPage() {
   const params = useParams();
-  const router = useRouter();
   const credentialId = params.id as string;
   const fetched = useRef(false);
 
@@ -45,35 +47,25 @@ export default function EmployerVerifyPage() {
 
     const wakingTimer = setTimeout(() => setWaking(true), 3000);
 
-    fetch(`/api/proxy/employer/verify/${credentialId}`)
-      .then(async (res) => {
+    apiGet<{
+      credentialId: string;
+      issuerCode: string;
+      issuedAt: string;
+      status: "ISSUED" | "REVOKED";
+      revokedAt?: string | null;
+      verification?: {
+        hashValid?: boolean;
+        signatureValid?: boolean;
+        verified?: boolean;
+        revoked?: boolean;
+        tamperDetected?: boolean;
+        verifiedAt?: string;
+      };
+    }>(`/employer/verify/${credentialId}`)
+      .then((data) => {
         clearTimeout(wakingTimer);
         setWaking(false);
 
-        if (res.status === 401 || res.status === 403) {
-          setErrorCode(res.status);
-          throw new Error(
-            res.status === 401
-              ? "Authentication required. Please log in as an Employer."
-              : "Access denied. Only users with the EMPLOYER role can verify credentials."
-          );
-        }
-        if (res.status === 404) {
-          setErrorCode(404);
-          throw new Error("Credential not found — the ID may be incorrect or does not exist.");
-        }
-        if (res.status === 429) {
-          setErrorCode(429);
-          throw new Error("Rate limit exceeded. Please wait a moment before trying again.");
-        }
-        if (!res.ok) {
-          setErrorCode(res.status);
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body?.message || `Verification failed (HTTP ${res.status})`);
-        }
-
-        const data = await res.json();
-        // Extract only safe fields — strip all PII
         setResult({
           credentialId: data.credentialId,
           issuerCode: data.issuerCode,
@@ -93,7 +85,20 @@ export default function EmployerVerifyPage() {
       .catch((err) => {
         clearTimeout(wakingTimer);
         setWaking(false);
-        setError((err as Error).message);
+        if (err instanceof ApiError) {
+          setErrorCode(err.status);
+          if (err.status === 403) {
+            setError("Access denied. Only users with the EMPLOYER role can verify credentials.");
+          } else if (err.status === 404) {
+            setError("Credential not found — the ID may be incorrect or does not exist.");
+          } else if (err.status === 429) {
+            setError("Rate limit exceeded. Please wait a moment before trying again.");
+          } else {
+            setError(err.message);
+          }
+        } else {
+          setError((err as Error).message || "Verification failed");
+        }
       })
       .finally(() => setLoading(false));
   }, [credentialId]);
@@ -106,56 +111,20 @@ export default function EmployerVerifyPage() {
     });
   };
 
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    localStorage.removeItem("authenx_role");
-    localStorage.removeItem("authenx_user");
-    router.push("/login");
-  };
-
   // Derive states
   const isRevoked = result?.verification?.revoked === true;
   const isTampered = result?.verification?.tamperDetected === true;
   const isVerified = result?.verification?.verified === true && !isRevoked;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-950 dark:to-slate-900">
-      {/* Header */}
-      <header className="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-2xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-slate-900 dark:text-white">AuthenX</h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Employer Credential Verification</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <a href="/employer" className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-500 transition-colors">
-              ← Dashboard
-            </a>
-            <button onClick={handleLogout} className="text-sm font-medium text-red-500 hover:text-red-400 bg-red-50 dark:bg-red-950/50 px-3 py-1 rounded-full transition-colors cursor-pointer">
-              Sign out
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-2xl mx-auto px-6 py-10">
+    <EmployerShell
+      navItems={[{ label: "Dashboard", href: "/employer", color: "text-blue-600 dark:text-blue-400 hover:text-blue-500" }]}
+    >
+      <div className="max-w-2xl mx-auto">
         {/* Loading */}
         {loading && (
           <div className="text-center py-20">
-            <div className="flex items-center justify-center gap-3 text-slate-500 mb-3">
-              <svg className="animate-spin h-6 w-6" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-              </svg>
-              <span className="text-sm font-medium">Verifying credential…</span>
-            </div>
+            <Spinner label="Verifying credential…" />
             {waking && (
               <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
                 Server is waking up from cold start. This may take 10-15 seconds.
@@ -313,14 +282,13 @@ export default function EmployerVerifyPage() {
           </div>
         )}
 
-        {/* Footer */}
         <div className="text-center mt-8">
           <p className="text-xs text-slate-400 dark:text-slate-500">
             Verified using SHA-256 hash integrity and Ed25519 digital signature. Employer login required.
           </p>
         </div>
-      </main>
-    </div>
+      </div>
+    </EmployerShell>
   );
 }
 

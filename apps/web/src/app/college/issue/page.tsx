@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useRef } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { motion, AnimatePresence } from "framer-motion";
+import { CollegeShell } from "@/components/shells";
+import { PageSpinner, Spinner, Button, inputCls, Card, Modal, Pagination } from "@/components/ui";
+import { QrModal } from "@/components/ui/qr-modal";
+import { apiGet, apiPost, apiPatch, ApiError } from "@/lib/api";
 
 /* ── Types ────────────────────────────────────────────────── */
 
@@ -72,10 +75,7 @@ const EMPTY_RECORD: StudentRecord = {
 /* ── Page ─────────────────────────────────────────────────── */
 
 export default function IssueCredentialsPage() {
-  const router = useRouter();
-
   /* auth */
-  const [currentRole, setCurrentRole] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [userIssuerCode, setUserIssuerCode] = useState<string | null>(null);
 
@@ -98,16 +98,7 @@ export default function IssueCredentialsPage() {
   const handlePrecheck = async (record: StudentRecord) => {
     setPrecheckMap((prev) => ({ ...prev, [record.rollNumber]: { status: "checking" } }));
     try {
-      const res = await fetch("/api/proxy/college/credentials/precheck", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ issuerCode, ...record }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
+      const data = await apiPost<{ matched: boolean; reason?: string; diff?: Record<string, unknown> }>("/college/credentials/precheck", { issuerCode, ...record });
       if (data.matched) {
         setPrecheckMap((prev) => ({ ...prev, [record.rollNumber]: { status: "matched", detail: "Found in ERP" } }));
       } else if (data.reason === "NOT_FOUND" || data.reason === "ERP_EMPTY") {
@@ -158,71 +149,43 @@ export default function IssueCredentialsPage() {
 
   /* ── Auth check ─────────────────────────────────────────── */
   useEffect(() => {
-    fetch("/api/proxy/auth/me")
-      .then((r) => {
-        if (!r.ok) throw new Error("Not authenticated");
-        return r.json();
-      })
+    apiGet<{ issuerCode?: string }>("/auth/me")
       .then((u) => {
-        setCurrentRole(u.role);
         if (u.issuerCode) {
           setUserIssuerCode(u.issuerCode);
           setIssuerCode(u.issuerCode);
         }
-        setAuthChecked(true);
       })
-      .catch(() => router.push("/login"));
-  }, [router]);
+      .catch(() => {})
+      .finally(() => setAuthChecked(true));
+  }, []);
 
   /* ── Fetch issued credentials ───────────────────────────── */
-  const fetchIssued = useCallback(async (page: number, search: string) => {
+  const fetchIssued = async (page: number, search: string) => {
     setIssuedLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: "10" });
       if (search.trim()) params.set("search", search.trim());
-      const res = await fetch(`/api/proxy/college/credentials?${params}`);
-      if (res.ok) {
-        const data: IssuedResponse = await res.json();
-        setIssuedData(data);
-      }
+      const data = await apiGet<IssuedResponse>(`/college/credentials?${params}`);
+      setIssuedData(data);
     } catch {
       // silent
     } finally {
       setIssuedLoading(false);
     }
-  }, []);
+  };
 
   useEffect(() => {
     if (activeTab === "issued" && authChecked) {
       fetchIssued(issuedPage, issuedSearch);
     }
-  }, [activeTab, issuedPage, issuedSearch, authChecked, fetchIssued]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, issuedPage, issuedSearch, authChecked]);
 
-  /* ── RBAC gate ──────────────────────────────────────────── */
-  if (!authChecked) return <Spinner />;
-
-  if (currentRole !== "COLLEGE_ADMIN") {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-indigo-50 dark:from-slate-950 dark:to-slate-900">
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow p-8 text-center max-w-sm">
-          <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-red-100 dark:bg-red-950 flex items-center justify-center">
-            <svg className="w-7 h-7 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" />
-            </svg>
-          </div>
-          <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Not Authorized</h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Only College Admins can issue credentials.</p>
-          <button onClick={() => router.push("/college")} className="text-sm font-medium text-indigo-600 hover:text-indigo-500">← Back to Dashboard</button>
-        </div>
-      </div>
-    );
-  }
+  /* ── Loading gate ───────────────────────────────────────── */
+  if (!authChecked) return <PageSpinner gradient="bg-gradient-to-br from-slate-50 to-emerald-50 dark:from-slate-950 dark:to-slate-900" />;
 
   /* ── Handlers ───────────────────────────────────────────── */
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/login");
-  };
 
   const addRecord = () => {
     if (!form.rollNumber.trim() || !form.name.trim() || !form.branch.trim()) return;
@@ -277,22 +240,8 @@ export default function IssueCredentialsPage() {
     setExpandedRows(new Set());
 
     try {
-      const res = await fetch("/api/proxy/college/credentials/publish", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ issuerCode, records }),
-      });
-      if (res.status === 403) {
-        setError("Not authorized — COLLEGE_ADMIN only");
-        return;
-      }
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || `Error ${res.status}`);
-      }
-      const data: PublishResponse = await res.json();
+      const data = await apiPost<PublishResponse>("/college/credentials/publish", { issuerCode, records });
       setResults(data);
-      // Auto-refresh issued list when new credentials were issued
       if (data.issued > 0) {
         fetchIssued(1, "");
       }
@@ -309,43 +258,12 @@ export default function IssueCredentialsPage() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const downloadQrPng = (credentialId: string, label: string) => {
-    const svgEl = document.querySelector(`#qr-modal-svg svg`) as SVGSVGElement | null;
-    if (!svgEl) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = 300;
-    canvas.height = 300;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const svgData = new XMLSerializer().serializeToString(svgEl);
-    const img = new Image();
-    img.onload = () => {
-      ctx.fillStyle = "#fff";
-      ctx.fillRect(0, 0, 300, 300);
-      ctx.drawImage(img, 0, 0, 300, 300);
-      const a = document.createElement("a");
-      a.download = `credential-${label || credentialId}.png`;
-      a.href = canvas.toDataURL("image/png");
-      a.click();
-    };
-    img.src = "data:image/svg+xml;base64," + btoa(svgData);
-  };
-
   const handleRevoke = async () => {
     if (!revokeModal || !revokeReason.trim()) return;
     setRevoking(true);
     setRevokeError(null);
     try {
-      const res = await fetch(`/api/proxy/college/credentials/${revokeModal.id}/revoke`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: revokeReason.trim() }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || `Error ${res.status}`);
-      }
-      // Refresh issued list
+      await apiPatch(`/college/credentials/${revokeModal.id}/revoke`, { reason: revokeReason.trim() });
       fetchIssued(issuedPage, issuedSearch);
       setRevokeModal(null);
       setRevokeReason("");
@@ -372,25 +290,20 @@ export default function IssueCredentialsPage() {
     setErpResult(null);
     setErpAlreadyIssued(null);
     try {
-      const res = await fetch("/api/proxy/college/credentials/issue-from-erp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rollNumber: erpRollNumber.trim() }),
-      });
-      if (res.status === 409) {
-        const data = await res.json().catch(() => ({}));
-        const match = (data.message || "").match(/id=([a-zA-Z0-9]+)/);
-        setErpAlreadyIssued(match ? match[1] : data.message || "Already issued");
-        return;
-      }
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || `Error ${res.status}`);
-      }
-      const data = await res.json();
+      const data = await apiPost<{
+        credentialId: string;
+        hash: string;
+        signature: string;
+        student: { rollNumber: string; name: string; degree: string; branch: string; graduationYear: number };
+      }>("/college/credentials/issue-from-erp", { rollNumber: erpRollNumber.trim() });
       setErpResult(data);
       fetchIssued(1, "");
     } catch (ex: unknown) {
+      if (ex instanceof ApiError && ex.status === 409) {
+        const match = ex.message.match(/id=([a-zA-Z0-9]+)/);
+        setErpAlreadyIssued(match ? match[1] : ex.message || "Already issued");
+        return;
+      }
       setErpError(ex instanceof Error ? ex.message : "Issue failed");
     } finally {
       setErpLoading(false);
@@ -399,31 +312,10 @@ export default function IssueCredentialsPage() {
 
   /* ── Render ─────────────────────────────────────────────── */
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-emerald-50 dark:from-slate-950 dark:to-slate-900">
-      {/* Header */}
-      <header className="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">Credential Manager</h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                {userIssuerCode ? `${userIssuerCode} — College Admin` : "College Admin"}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <a href="/college" className="text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">← Dashboard</a>
-            <button onClick={handleLogout} className="text-sm font-medium text-red-500 hover:text-red-400 bg-red-50 dark:bg-red-950/50 px-3 py-1 rounded-full transition-colors cursor-pointer">Sign out</button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+    <CollegeShell
+      issuerCode={userIssuerCode}
+      navItems={[{ label: "Dashboard", href: "/college", color: "text-slate-600 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400" }]}
+    >
         {/* Tab navigation */}
         <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-fit">
           <button
@@ -844,9 +736,8 @@ export default function IssueCredentialsPage() {
             </div>
 
             {issuedLoading ? (
-              <div className="p-12 text-center text-slate-400">
-                <svg className="animate-spin h-6 w-6 mx-auto mb-2" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                Loading…
+              <div className="p-12 text-center">
+                <Spinner label="Loading…" />
               </div>
             ) : issuedData && issuedData.data.length > 0 ? (
               <>
@@ -944,27 +835,7 @@ export default function IssueCredentialsPage() {
 
                 {/* Pagination */}
                 {issuedData.totalPages > 1 && (
-                  <div className="p-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                    <p className="text-xs text-slate-500">
-                      Page {issuedData.page} of {issuedData.totalPages} ({issuedData.total} total)
-                    </p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setIssuedPage((p) => Math.max(1, p - 1))}
-                        disabled={issuedData.page <= 1}
-                        className="px-3 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-400 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800"
-                      >
-                        ← Prev
-                      </button>
-                      <button
-                        onClick={() => setIssuedPage((p) => Math.min(issuedData!.totalPages, p + 1))}
-                        disabled={issuedData.page >= issuedData.totalPages}
-                        className="px-3 py-1 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-400 disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed hover:bg-slate-50 dark:hover:bg-slate-800"
-                      >
-                        Next →
-                      </button>
-                    </div>
-                  </div>
+                  <Pagination page={issuedData.page} totalPages={issuedData.totalPages} total={issuedData.total} limit={issuedData.limit} onPageChange={setIssuedPage} />
                 )}
               </>
             ) : (
@@ -974,115 +845,56 @@ export default function IssueCredentialsPage() {
             )}
           </div>
         )}
-      </main>
 
       {/* QR Modal */}
-      <AnimatePresence>
-      {qrModal && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setQrModal(null)}>
-          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 w-full max-w-sm mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white text-center mb-2">Credential QR</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 text-center mb-6">{qrModal.name}</p>
-            <div className="flex justify-center mb-6" id="qr-modal-svg">
-              <div className="p-4 bg-white rounded-2xl">
-                <QRCodeSVG
-                  value={`${typeof window !== "undefined" ? window.location.origin : ""}/employer/verify/${qrModal.id}`}
-                  size={200}
-                  level="M"
-                  includeMargin
-                />
-              </div>
-            </div>
-            <p className="text-xs text-center font-mono text-slate-400 dark:text-slate-500 break-all mb-4">{qrModal.id}</p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => copyToClipboard(`${window.location.origin}/employer/verify/${qrModal.id}`, "qr-link")}
-                className="flex-1 py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              >
-                {copiedId === "qr-link" ? "Copied!" : "Copy Link"}
-              </button>
-              <button
-                onClick={() => downloadQrPng(qrModal.id, qrModal.name)}
-                className="flex-1 py-2 px-3 rounded-xl border border-emerald-300 dark:border-emerald-700 text-sm font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors cursor-pointer"
-              >
-                Download PNG
-              </button>
-              <button
-                onClick={() => setQrModal(null)}
-                className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors cursor-pointer"
-              >
-                Close
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-      </AnimatePresence>
+      <QrModal
+        open={!!qrModal}
+        onClose={() => setQrModal(null)}
+        credentialId={qrModal?.id ?? ""}
+        credentialName={qrModal?.name}
+      />
 
       {/* Revoke Confirmation Modal */}
-      <AnimatePresence>
-      {revokeModal && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => { setRevokeModal(null); setRevokeReason(""); setRevokeError(null); }}>
-          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} transition={{ type: "spring", damping: 25, stiffness: 300 }} className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-red-200 dark:border-red-800 w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-950 flex items-center justify-center flex-shrink-0">
-                <svg className="w-5 h-5 text-red-600 dark:text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
-                </svg>
-              </div>
-              <div>
-                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Revoke Credential</h3>
-                <p className="text-sm text-slate-500 dark:text-slate-400">This action cannot be undone.</p>
-              </div>
-            </div>
+      <Modal
+        open={!!revokeModal}
+        onClose={() => { setRevokeModal(null); setRevokeReason(""); setRevokeError(null); }}
+        title="Revoke Credential"
+        subtitle="This action cannot be undone."
+      >
+            {revokeModal && (
+              <>
+                <div className="bg-red-50 dark:bg-red-950/30 rounded-xl p-3 mb-4 text-sm">
+                  <p className="text-red-800 dark:text-red-300">
+                    <span className="font-semibold">{revokeModal.name}</span> — {revokeModal.rollNumber}
+                  </p>
+                  <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-mono">{revokeModal.id}</p>
+                </div>
 
-            <div className="bg-red-50 dark:bg-red-950/30 rounded-xl p-3 mb-4 text-sm">
-              <p className="text-red-800 dark:text-red-300">
-                <span className="font-semibold">{revokeModal.name}</span> — {revokeModal.rollNumber}
-              </p>
-              <p className="text-xs text-red-600 dark:text-red-400 mt-1 font-mono">{revokeModal.id}</p>
-            </div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Reason for revocation *</label>
+                <textarea
+                  value={revokeReason}
+                  onChange={(e) => setRevokeReason(e.target.value)}
+                  placeholder="e.g. Fraudulent application, data error, student expelled…"
+                  rows={3}
+                  className={inputCls + " resize-none focus:ring-red-500"}
+                />
 
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Reason for revocation *</label>
-            <textarea
-              value={revokeReason}
-              onChange={(e) => setRevokeReason(e.target.value)}
-              placeholder="e.g. Fraudulent application, data error, student expelled…"
-              rows={3}
-              className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-red-500 text-sm resize-none"
-            />
-
-            {revokeError && (
-              <p className="text-sm text-red-600 dark:text-red-400 mt-2">{revokeError}</p>
-            )}
-
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => { setRevokeModal(null); setRevokeReason(""); setRevokeError(null); }}
-                className="flex-1 py-2 px-3 rounded-xl border border-slate-300 dark:border-slate-700 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleRevoke}
-                disabled={!revokeReason.trim() || revoking}
-                className="flex-1 py-2 px-3 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                {revoking ? (
-                  <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                    Revoking…
-                  </>
-                ) : (
-                  "Revoke Credential"
+                {revokeError && (
+                  <p className="text-sm text-red-600 dark:text-red-400 mt-2">{revokeError}</p>
                 )}
-              </button>
-            </div>
-          </motion.div>
-        </motion.div>
-      )}
-      </AnimatePresence>
-    </div>
+
+                <div className="flex gap-2 mt-4">
+                  <Button variant="secondary" className="flex-1" onClick={() => { setRevokeModal(null); setRevokeReason(""); setRevokeError(null); }}>
+                    Cancel
+                  </Button>
+                  <Button variant="danger" className="flex-1" loading={revoking} disabled={!revokeReason.trim()} onClick={handleRevoke}>
+                    Revoke Credential
+                  </Button>
+                </div>
+              </>
+            )}
+      </Modal>
+    </CollegeShell>
   );
 }
 
@@ -1223,7 +1035,7 @@ function ResultRow({
 
 /* ── Shared Components ────────────────────────────────────── */
 
-const inputCls = "w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-sm";
+/* ── Page-specific components ─────────────────────────────── */
 
 function SummaryCard({ label, value, icon, color }: { label: string; value: number; icon: "list" | "check" | "x"; color: "blue" | "emerald" | "red" }) {
   const bgMap = { blue: "bg-blue-50 dark:bg-blue-950/40", emerald: "bg-emerald-50 dark:bg-emerald-950/40", red: "bg-red-50 dark:bg-red-950/40" };
@@ -1269,16 +1081,3 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function Spinner() {
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-emerald-50 dark:from-slate-950 dark:to-slate-900">
-      <div className="flex items-center gap-3 text-slate-500">
-        <svg className="animate-spin h-6 w-6" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-        Loading…
-      </div>
-    </div>
-  );
-}

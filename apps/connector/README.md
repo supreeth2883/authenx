@@ -1,98 +1,211 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# AuthenX Connector
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+On-premise signing and ERP integration service for the AuthenX credential platform. Each educational institution runs a Connector instance that holds Ed25519 private keys, signs credential payloads, and bridges the institution's student record system (ERP) with the central Cloud API.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Built with **NestJS 11**, **TweetNaCl** (Ed25519), and **Prisma 5** (PostgreSQL ERP store).
 
-## Description
+## Architecture
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
-
-## Project setup
-
-```bash
-$ pnpm install
+```
+┌──────────────┐          ┌──────────────┐          ┌──────────┐
+│   Cloud API  │──────▶   │  Connector   │──────▶   │  ERP DB  │
+│  (port 3001) │◀──────   │  (port 3002) │          │ (Prisma) │
+└──────────────┘          └───────┬──────┘          └──────────┘
+                                  │
+                           Ed25519 Keys
+                         (file / env-based)
 ```
 
-## Compile and run the project
+The Connector acts as a trust boundary — it never exposes private keys to the Cloud API. All signing happens locally, and only public keys are shared.
+
+## Quick Start
 
 ```bash
-# development
-$ pnpm run start
+# From monorepo root
+pnpm install
 
-# watch mode
-$ pnpm run start:dev
+# Set up environment
+cd apps/connector
+cp .env.example .env   # configure CONNECTOR_ADMIN_KEY, ISSUER_CODE, etc.
 
-# production mode
-$ pnpm run start:prod
+# Start in development mode
+pnpm start:dev         # http://localhost:3002
 ```
 
-## Run tests
+## Scripts
+
+| Script | Description |
+|--------|-------------|
+| `pnpm build` | Generate Prisma client + compile TypeScript |
+| `pnpm start:dev` | Watch mode with hot reload |
+| `pnpm start:debug` | Watch mode with debugger attached |
+| `pnpm start:prod` | Run compiled `dist/main.js` |
+| `pnpm test` | Run unit tests (Jest) |
+| `pnpm test:e2e` | Run end-to-end tests |
+| `pnpm test:cov` | Run tests with coverage |
+| `pnpm prisma:generate` | Generate Prisma client |
+| `pnpm prisma:migrate` | Apply pending migrations (deploy) |
+| `pnpm prisma:seed` | Seed ERP mock data |
+| `pnpm lint` | Lint & auto-fix with ESLint |
+| `pnpm format` | Format with Prettier |
+
+## Project Structure
+
+```
+src/
+├── main.ts              # Bootstrap (CORS, binds 0.0.0.0)
+├── app.module.ts        # Root module
+├── app.controller.ts    # Root routes (health, public keys, ping, rotate-key)
+├── app.service.ts       # Core logic
+├── keys/                # Ed25519 key management
+│   ├── keys.service.ts  # Key generation, loading (env/file), rotation
+│   └── keys.module.ts
+├── sign/                # Payload signing
+│   ├── sign.controller.ts  # POST /sign
+│   ├── sign.service.ts     # Ed25519 sign with TweetNaCl
+│   └── sign.module.ts
+├── erp/                 # ERP data management
+│   ├── erp.controller.ts   # Student records CRUD, validation, publishing
+│   ├── erp.service.ts      # ERP business logic
+│   └── erp.module.ts
+└── ping/                # Ping/health utilities
+data/
+└── mock_erp.json        # Sample ERP student records
+```
+
+## API Reference
+
+### Root Endpoints
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| GET | `/` | None | Health check / hello |
+| GET | `/public-key` | None | Active Ed25519 public key (base64) |
+| GET | `/public-keys` | None | All known public keys (active + rotated) |
+| GET | `/keys/debug` | None | Key diagnostics info |
+| POST | `/rotate-key` | AdminKeyGuard | Disabled — returns instructions |
+| POST | `/ping` | AdminKeyGuard | Signed ping/nonce response |
+
+### Signing — `/sign`
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| POST | `/sign` | AdminKeyGuard | Sign a JSON payload with Ed25519 |
+
+**Request body:**
+
+```json
+{
+  "payload": { "name": "...", "degree": "...", "..." : "..." },
+  "keyVersion": 1
+}
+```
+
+**Response:**
+
+```json
+{
+  "signature": "<base64-encoded Ed25519 signature>",
+  "publicKey": "<base64-encoded public key>",
+  "keyVersion": 1
+}
+```
+
+### ERP — `/erp`
+
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| GET | `/erp/health` | None | ERP health status |
+| GET | `/erp/admin/status` | AdminKeyGuard | Admin mode status |
+| POST | `/erp/validate-student` | AdminKeyGuard | Validate student against ERP records |
+| POST | `/erp/publish-results` | AdminKeyGuard | Publish ERP results to Cloud API |
+| GET | `/erp/admin/records` | AdminKeyGuard | List all student records |
+| GET | `/erp/admin/lookup/:rollNumber` | AdminKeyGuard | Lookup single student |
+| POST | `/erp/admin/upsert` | AdminKeyGuard | Upsert single student record |
+| POST | `/erp/admin/upsert-batch` | AdminKeyGuard | Batch upsert (max 500 records) |
+| DELETE | `/erp/admin/records/:rollNumber` | AdminKeyGuard | Delete student record |
+
+## Key Management
+
+### Ed25519 Signing Keys
+
+The Connector uses Ed25519 (via TweetNaCl) for all credential signing. Keys can be provided via:
+
+1. **Environment variables** (recommended for production):
+   - `SIGNING_PUBLIC_KEY_RAW` / `SIGNING_PRIVATE_KEY_RAW` — base64-encoded raw 32-byte keys
+   - `SIGNING_PUBLIC_KEY` / `SIGNING_PRIVATE_KEY` — base64-encoded DER keys (legacy fallback)
+
+2. **Auto-generated** — If no keys are provided, the service generates a new keypair on startup and logs the public key.
+
+### Key Rotation
+
+Key rotation is managed centrally through the Cloud API:
+
+- `POST /issuers/:issuerCode/rotate-key` on Cloud API
+- Cloud API generates a new keypair and stores it in `IssuerKey`
+- Old keys remain for verification of previously-issued credentials
+- The connector's local `/rotate-key` endpoint is disabled by design
+
+## Authentication
+
+All protected endpoints use the `AdminKeyGuard`, which validates the `x-admin-key` header against the `CONNECTOR_ADMIN_KEY` environment variable. This shared secret authenticates Cloud API to Connector calls.
 
 ```bash
-# unit tests
-$ pnpm run test
-
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+# Example authenticated request
+curl -H "x-admin-key: your-secret-key" http://localhost:3002/sign \
+  -H "Content-Type: application/json" \
+  -d '{"payload": {"name": "Test"}, "keyVersion": 1}'
 ```
 
-## Deployment
+## Environment Variables
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `CONNECTOR_DATABASE_URL` | Yes | — | PostgreSQL connection (ERP data) |
+| `PORT` | No | `3002` | Server port |
+| `NODE_ENV` | No | `development` | Environment mode |
+| `CLOUD_API_URL` | No | `http://localhost:3001` | Cloud API base URL |
+| `ISSUER_CODE` | Yes | — | Issuer code for this connector |
+| `CONNECTOR_ADMIN_KEY` | Yes | — | Shared secret for admin auth |
+| `SIGNING_PUBLIC_KEY_RAW` | Prod | — | Ed25519 raw public key (base64) |
+| `SIGNING_PRIVATE_KEY_RAW` | Prod | — | Ed25519 raw private key (base64) |
+| `SIGNING_PUBLIC_KEY` | No | — | Ed25519 DER public key (legacy) |
+| `SIGNING_PRIVATE_KEY` | No | — | Ed25519 DER private key (legacy) |
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## Mock ERP Data
+
+Sample student records are in [`data/mock_erp.json`](data/mock_erp.json). Seed them via:
 
 ```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+# Seed via Prisma
+pnpm prisma:seed
+
+# Or via API
+curl -X POST http://localhost:3002/erp/admin/upsert-batch \
+  -H "x-admin-key: your-key" \
+  -H "Content-Type: application/json" \
+  -d '{"records": [...]}'
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Testing
 
-## Resources
+```bash
+# Unit tests
+pnpm test
 
-Check out a few resources that may come in handy when working with NestJS:
+# E2E tests
+pnpm test:e2e
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+# Coverage
+pnpm test:cov
+```
 
-## Support
+## Dependencies
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+| Package | Purpose |
+|---------|---------|
+| `@nestjs/core` | NestJS framework |
+| `@prisma/client` | Database ORM (ERP records) |
+| `tweetnacl` | Ed25519 key generation + signing |
+| `tweetnacl-util` | Base64/UTF-8 encoding utilities |
+| `dotenv` | Environment variable loading |

@@ -1,9 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { EmployerShell } from "@/components/shells";
+import { Card, PageSpinner } from "@/components/ui";
+import { Button, inputCls } from "@/components/ui";
+import { apiGet } from "@/lib/api";
 
 interface VerificationResult {
   credentialId: string;
@@ -32,15 +36,7 @@ interface VerificationResult {
 export default function EmployerPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-950 dark:to-slate-900">
-        <div className="flex items-center gap-3 text-slate-500">
-          <svg className="animate-spin h-6 w-6" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          Loading…
-        </div>
-      </div>
+      <PageSpinner label="Loading…" gradient="bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-950 dark:to-slate-900" />
     }>
       <EmployerPageInner />
     </Suspense>
@@ -48,7 +44,6 @@ export default function EmployerPage() {
 }
 
 function EmployerPageInner() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const autoVerified = useRef(false);
   const [orgName, setOrgName] = useState("");
@@ -74,13 +69,6 @@ function EmployerPageInner() {
       setCredentialId(qpId);
     }
   }, [searchParams]);
-
-  const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST" });
-    localStorage.removeItem("authenx_role");
-    localStorage.removeItem("authenx_user");
-    router.push("/login");
-  };
 
   // Auto-verify when credentialId is set from query param
   useEffect(() => {
@@ -109,25 +97,13 @@ function EmployerPageInner() {
       const params = new URLSearchParams();
       if (orgName.trim()) params.set("orgName", orgName.trim());
 
-      const res = await fetch(
-        `/api/proxy/employer/verify/${credentialId.trim()}?${params.toString()}`
+      const data = await apiGet<VerificationResult>(
+        `/employer/verify/${credentialId.trim()}?${params.toString()}`
       );
 
       clearTimeout(wakingTimer);
       setWaking(false);
 
-      if (res.status === 404) {
-        throw new Error("Credential not found — the ID may be incorrect or does not exist.");
-      }
-      if (res.status === 403) {
-        throw new Error("Access denied — Employer role required.");
-      }
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.message || `Verification failed (HTTP ${res.status})`);
-      }
-
-      const data: VerificationResult = await res.json();
       setResult(data);
     } catch (err) {
       clearTimeout(wakingTimer);
@@ -316,35 +292,9 @@ function EmployerPageInner() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-950 dark:to-slate-900">
-      {/* Header */}
-      <header className="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z" />
-              </svg>
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">AuthenX</h1>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Employer Verification Portal</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-3 py-1 rounded-full">
-              Employer
-            </span>
-            <button onClick={handleLogout} className="text-sm font-medium text-red-500 hover:text-red-400 bg-red-50 dark:bg-red-950/50 px-3 py-1 rounded-full transition-colors cursor-pointer">
-              Sign out
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-4xl mx-auto px-6 py-8 space-y-6">
-        {/* Verify Card */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 p-6">
+    <EmployerShell>
+      {/* Verify Card */}
+      <Card>
           <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">Verify a Credential</h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
             Scan a QR code, upload a QR image, or enter the credential ID to cryptographically verify its authenticity.
@@ -360,7 +310,7 @@ function EmployerPageInner() {
                 value={orgName}
                 onChange={(e) => setOrgName(e.target.value)}
                 placeholder="e.g. Acme Corp"
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                className={inputCls}
               />
             </div>
 
@@ -378,7 +328,7 @@ function EmployerPageInner() {
                 }}
                 placeholder="e.g. cmlmkz8o5000ly1mz... or authenx:<id>"
                 required
-                className="w-full px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all font-mono text-sm"
+                className={`${inputCls} font-mono`}
               />
               <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">
                 Paste a credential ID or QR payload (authenx:&lt;id&gt;)
@@ -453,7 +403,7 @@ function EmployerPageInner() {
               )}
             </button>
           </form>
-        </div>
+        </Card>
 
         {/* Cold start hint */}
         {waking && (
@@ -621,8 +571,7 @@ function EmployerPageInner() {
           </motion.div>
         )}
         </AnimatePresence>
-      </main>
-    </div>
+    </EmployerShell>
   );
 }
 
